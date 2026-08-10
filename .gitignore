@@ -53,3 +53,4 @@ Thumbs.db
 
 # Agent temp
 .agents_tmp/
+_demo_outputs/

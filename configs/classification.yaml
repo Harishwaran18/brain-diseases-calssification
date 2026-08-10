@@ -3,7 +3,7 @@ classification:
   model:
     name: densenet3d  # densenet3d | resnet3d | slice_ensemble
     in_channels: 1
-    num_classes: 2  # e.g. healthy vs Alzheimer's
+    num_classes: 4  # healthy | early | moderate | advanced neurodegeneration
     spatial_dims: 3
     pretrained: false
   slice_ensemble:
