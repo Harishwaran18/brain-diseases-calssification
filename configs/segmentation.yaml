@@ -1,0 +1,32 @@
+# Retraining-free SAM segmentation configuration.
+segmentation:
+  sam:
+    model_type: vit_b  # vit_h | vit_l | vit_b
+    checkpoint: null  # auto-resolved from checkpoint_dir if null
+  inference:
+    slice_axis: 2  # axial
+    multimask_output: true
+    mask_threshold: 0.5
+    # Label assignment: map SAM masks to tissue classes by intensity/geometry.
+    label_assignment:
+      classes: [background, gray_matter, white_matter, csf, lesion]
+      strategy: intensity_ranking  # intensity_ranking | largest_first
+  prompts:
+    auto: true
+    strategy: grid  # grid | intensity_peaks | gradient_bbox
+    grid_spacing: 64  # pixels between grid points
+    max_points: 12
+    use_bbox: true
+    bbox_from: intensity  # intensity | gradient
+  tta:
+    enabled: false  # off by default; enable for context-aware adaptation
+    steps: 3
+    lr: 1.0e-5
+    ema_decay: 0.999
+    signals: [entropy, iou_uncertainty, dual_scale_consistency]
+    adapt_params: [iou_token]  # only a tiny set of affine params
+  postprocess:
+    largest_cc: true
+    fill_holes: true
+    smoothing_sigma: 1.0
+    min_voxel_count: 50

@@ -1,0 +1,25 @@
+# 3D volumetric reconstruction configuration.
+reconstruction:
+  stacking:
+    spacing: [1.0, 1.0, 1.0]  # target isotropic voxel spacing (mm)
+    interpolation: linear  # linear | nearest
+    fill_gaps: true
+    gap_method: morphological  # morphological | linear_interp
+  marching:
+    method: marching_cubes  # marching_cubes | flying_edges
+    level: 0.5
+    step_size: 1
+    smoothing:
+      enabled: true
+      iterations: 3
+      lambda: 0.5
+    per_label: true  # extract a mesh per tissue label
+  metrics:
+    compute: true
+    labels_of_interest: [gray_matter, white_matter, csf, lesion]
+    reference_region: white_matter  # for atrophy ratios
+  visualize:
+    engine: plotly  # plotly | pyvista
+    save_html: true
+    save_png: false
+    cross_sections: true
