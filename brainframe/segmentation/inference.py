@@ -14,7 +14,6 @@ from dataclasses import dataclass
 import numpy as np
 
 from brainframe.config import LABELS, SegmentationConfig
-from brainframe.data.preprocessing import normalize_intensity
 from brainframe.data.samplers import SliceSampler
 from brainframe.segmentation.postprocess import postprocess_mask
 from brainframe.segmentation.prompts import build_prompts
@@ -67,8 +66,13 @@ def _assign_labels(masks: list[Mask], image: np.ndarray, classes: list[str]) -> 
 
     # Lesion detection: extreme hyper-intense outlier (e.g. >3 sigma above mean) that is
     # spatially small. Conservative so it does not hijack normal tissue.
-    norm = normalize_intensity(img)
-    hot = norm > 3.0
+    # NOTE: compute the z-score on the raw (un-clipped) image, because
+    # normalize_intensity clips to the 99th percentile, which suppresses the very
+    # hyper-intense outliers we want to flag as lesions.
+    fg_raw = img[img > img.mean()]
+    raw_std = float(fg_raw.std()) if fg_raw.size else 1.0
+    z = (img - float(img.mean())) / (raw_std or 1.0)
+    hot = z > 3.0
     if hot.sum() > 0:
         out[hot] = LABELS["lesion"]
     return out
