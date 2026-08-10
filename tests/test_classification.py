@@ -88,6 +88,24 @@ def test_predict_volume(tmp_path, nifti_path):
     assert 0 <= out["prediction"] < 2
 
 
+def test_predict_volume_pads_small_volume(tmp_path):
+    """Patching path: volume smaller than patch_size on every axis must zero-pad cleanly."""
+    import nibabel as nib
+
+    from brainframe.classification.models import build_classifier
+    from brainframe.classification.predict import predict_volume
+    from brainframe.config import ClassificationModelConfig
+
+    small = np.zeros((10, 12, 14), dtype=np.float32)
+    p = tmp_path / "small.nii.gz"
+    nib.save(nib.Nifti1Image(small, affine=np.eye(4)), str(p))
+
+    cfg = ClassificationModelConfig(name="fallback", in_channels=1, num_classes=2)
+    model = build_classifier(cfg).eval()
+    out = predict_volume(model, str(p), device="cpu", patch_size=(24, 24, 24))
+    assert out["prediction"] in (0, 1)
+
+
 def test_classification_metrics():
     from brainframe.classification.train import _classification_metrics
 
