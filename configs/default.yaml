@@ -1,0 +1,42 @@
+# Master configuration for the brainframe pipeline.
+# Stage-specific configs live alongside this file and are referenced here.
+
+seed: 42
+device: auto  # "auto", "cuda", "mps", or "cpu"
+log_level: INFO
+
+paths:
+  data_dir: data
+  raw_dir: data/raw
+  processed_dir: data/processed
+  checkpoint_dir: data/checkpoints
+  output_dir: data/outputs
+
+# Stages enabled in the full `run` pipeline.
+pipeline:
+  stages: [segment, reconstruct, evaluate]
+  cache: true
+  cache_dir: data/outputs/cache
+
+# References to stage configs (loaded by name from configs/).
+stages:
+  classification: configs/classification.yaml
+  segmentation: configs/segmentation.yaml
+  reconstruction: configs/reconstruction.yaml
+  evaluation: configs/evaluation.yaml
+
+# SAM checkpoint configuration.
+sam:
+  model_type: vit_b  # vit_h | vit_l | vit_b
+  checkpoint_dir: data/checkpoints
+  auto_download: true
+  fallback_to_mock: true  # if SAM unavailable, use a mock segmenter for CI
+
+# Data acquisition.
+datasets:
+  oasis:
+    root: data/raw/oasis
+    modality: T1
+  brats:
+    root: data/raw/brats
+    modality: T1ce

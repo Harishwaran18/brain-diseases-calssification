@@ -1,0 +1,28 @@
+# Computational therapy evaluation configuration.
+evaluation:
+  lesion_analysis:
+    detect: true
+    lesion_label: lesion
+    min_volume_mm3: 50
+    adjacency_structures: [white_matter, gray_matter, csf]
+  therapy:
+    target_label: lesion
+    target_mode: centroid  # centroid | largest_region | manual
+    radius_mm: 10.0
+    dose: 1.0  # 0..1 intensity of intervention
+    mode: regeneration  # stimulation | regeneration | lesion_reversal
+    kernel: gaussian  # gaussian | diffusion
+    sigma_mm: 5.0
+  simulator:
+    propagation_steps: 10
+    diffusion_rate: 0.15
+    region_graph_k: 6  # nearest-neighbour regions for propagation
+  compatibility:
+    coverage_weight: 0.5
+    risk_weight: 0.3
+    recovery_weight: 0.2
+    risk_threshold_mm: 5.0  # min distance to healthy structures
+  report:
+    format: [json, html]
+    output_dir: data/outputs/evaluation
+    figures: [before_after_3d, metric_bar, lesion_map]

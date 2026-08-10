@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.uv/
+
+# Testing / typing
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Data & checkpoints (never commit large binaries)
+data/raw/
+data/processed/
+data/external/
+data/checkpoints/
+data/outputs/
+*.nii
+*.nii.gz
+*.dcm
+*.glb
+*.stl
+*.ply
+*.pth
+*.pt
+*.ckpt
+
+# Models / SAM
+*.bin
+
+# Env
+.env
+.env.local
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Agent temp
+.agents_tmp/
