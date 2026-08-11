@@ -16,17 +16,17 @@ from typing import Any
 
 import numpy as np
 
-from brainframe.reconstruction.marching import MeshResult
+from brainframe.reconstruction.marching import MeshData, MeshResult
 from brainframe.utils.logging import get_logger
 
 log = get_logger("reporting.unified_report")
 
 # Medically-inspired tissue palette (name -> (color, opacity, show_edges))
 TISSUE_STYLE: dict[str, tuple[str, float, bool]] = {
-    "gray_matter": ("#c9a96e", 0.18, False),  # cortical gold, translucent shell
-    "white_matter": ("#e8e0d0", 0.55, False),  # bright core
-    "csf": ("#3aa6e6", 0.22, False),  # cerebrospinal fluid blue
-    "lesion": ("#ff2b4a", 0.92, True),  # pathology red, solid + edges
+    "gray_matter": ("#c9a96e", 0.18, False),
+    "white_matter": ("#e8e0d0", 0.55, False),
+    "csf": ("#3aa6e6", 0.22, False),
+    "lesion": ("#ff2b4a", 0.92, True),
     "background": ("#222222", 0.0, False),
 }
 DISEASE_LABELS: dict[int, str] = {
@@ -49,45 +49,101 @@ def _safe_float(v: Any, nd: int = 2) -> str:
         return str(v)
 
 
+def _lesion_mesh(mesh_result: MeshResult) -> MeshData | None:
+    for m in mesh_result.meshes:
+        if m.label == "lesion" and len(m.vertices) > 0 and len(m.faces) > 0:
+            return m
+    return None
+
+
+def _decimate_mesh(
+    vertices: np.ndarray, faces: np.ndarray, target_verts: int = 4000
+) -> tuple[np.ndarray, np.ndarray]:
+    """Reduce a mesh to ~target_verts by uniform vertex subsampling + face filter."""
+    if len(vertices) <= target_verts:
+        return vertices, faces
+    step = max(1, len(vertices) // target_verts)
+    keep_idx = np.arange(0, len(vertices), step)
+    idx_map = -np.ones(len(vertices), dtype=np.int64)
+    idx_map[keep_idx] = np.arange(len(keep_idx))
+    valid = (idx_map[faces[:, 0]] >= 0) & (idx_map[faces[:, 1]] >= 0) & (idx_map[faces[:, 2]] >= 0)
+    new_faces = idx_map[faces[valid]]
+    return vertices[keep_idx], new_faces
+
+
+def _shrink_mesh(vertices: np.ndarray, centroid: np.ndarray, frac: float) -> np.ndarray:
+    """Scale vertices toward the lesion centroid by (1 - frac) — models cure."""
+    return centroid + (vertices - centroid) * (1.0 - frac)
+
+
+def _medicine_verdict(recovery_frac: float, risk: float) -> dict:
+    """Return a precise medicine-efficacy verdict from lesion reduction + risk."""
+    if recovery_frac >= 0.20 and risk < 0.85:
+        verdict, color, icon = "MEDICINE WORKING", "#3fb950", "✅"
+    elif recovery_frac < 0.05:
+        verdict, color, icon = "MEDICINE INEFFECTIVE", "#f85149", "⛔"
+    else:
+        verdict, color, icon = "PARTIAL RESPONSE", "#d29922", "⚠️"
+    return {
+        "verdict": verdict,
+        "color": color,
+        "icon": icon,
+        "reduction_pct": recovery_frac * 100.0,
+        "risk": risk,
+    }
+
+
 def build_3d_figure(
     mesh_result: MeshResult,
     label_volume: np.ndarray | None = None,
     spacing: tuple[float, float, float] = (1.0, 1.0, 1.0),
     lesion_regions: list[dict] | None = None,
+    simulation: dict | None = None,
 ) -> Any:
-    """Build an advanced plotly 3D figure with multi-tissue meshes + lesion markers."""
+    """Build an animated plotly 3D figure: multi-tissue brain + live cure frames.
+
+    The lesion mesh shrinks across animation frames (medicine taking effect),
+    with a play button + slider so the cure plays live in the viewer. Meshes are
+    decimated to keep the self-contained HTML small and responsive.
+    """
     import plotly.graph_objects as go
 
-    fig = go.Figure()
-    # Re-order so the lesion (most important) renders last and stays on top.
+    sim = simulation or {}
+    before_v = float(sim.get("before_lesion_volume_mm3", 0.0) or 0.0)
+    after_v = float(sim.get("after_lesion_volume_mm3", 0.0) or 0.0)
+    recovery_frac = ((before_v - after_v) / before_v) if before_v > 0 else 0.0
+
+    base_traces: list[Any] = []
     ordered = sorted(
         mesh_result.meshes,
         key=lambda m: 0 if m.label == "lesion" else (1 if m.label == "white_matter" else 2),
     )
+    lesion_mesh = None
     for m in ordered:
-        color, opacity, edges = TISSUE_STYLE.get(m.label, ("#aaaaaa", 0.5, False))
+        if m.label == "lesion":
+            lesion_mesh = m
+            continue
+        color, opacity, _edges = TISSUE_STYLE.get(m.label, ("#aaaaaa", 0.5, False))
         if len(m.vertices) == 0 or len(m.faces) == 0:
             continue
-        fig.add_trace(
+        v, f = _decimate_mesh(m.vertices, m.faces, target_verts=3000)
+        base_traces.append(
             go.Mesh3d(
-                x=m.vertices[:, 0],
-                y=m.vertices[:, 1],
-                z=m.vertices[:, 2],
-                i=m.faces[:, 0],
-                j=m.faces[:, 1],
-                k=m.faces[:, 2],
+                x=v[:, 0],
+                y=v[:, 1],
+                z=v[:, 2],
+                i=f[:, 0],
+                j=f[:, 1],
+                k=f[:, 2],
                 color=color,
                 opacity=opacity,
                 name=m.label.replace("_", " ").title(),
                 showlegend=True,
-                lighting={"ambient": 0.5, "diffuse": 0.8, "specular": 0.3, "roughness": 0.6},
-                flatshading=(m.label == "lesion"),
-                contour={"show": edges, "color": "#ff8a9a", "width": 2} if edges else None,
-                hovertemplate=f"<b>{m.label}</b><br>mesh vertex<br>extra=none<extra></extra>",
+                lighting={"ambient": 0.55, "diffuse": 0.8, "specular": 0.25, "roughness": 0.6},
+                hovertemplate=f"<b>{m.label}</b><extra></extra>",
             )
         )
 
-    # Anatomical mid-slice plane (semi-transparent surface) for spatial orientation.
     if label_volume is not None and label_volume.size > 0:
         try:
             mid = label_volume.shape[2] // 2
@@ -95,16 +151,17 @@ def build_3d_figure(
             H, W = sl.shape
             sx, sy, _ = spacing
             yy, xx = np.mgrid[0:H, 0:W]
-            fig.add_trace(
+            ss = max(1, H // 48)
+            base_traces.append(
                 go.Surface(
-                    x=xx * sx,
-                    y=yy * sy,
-                    z=np.full_like(sl, mid * spacing[2], dtype=np.float32),
-                    surfacecolor=sl,
+                    x=xx[::ss, ::ss] * sx,
+                    y=yy[::ss, ::ss] * sy,
+                    z=np.full(sl[::ss, ::ss].shape, mid * spacing[2], dtype=np.float32),
+                    surfacecolor=sl[::ss, ::ss],
                     colorscale="Greys",
                     showscale=False,
-                    opacity=0.35,
-                    name="axial slice plane",
+                    opacity=0.22,
+                    name="axial slice",
                     hoverinfo="skip",
                     showlegend=False,
                 )
@@ -112,9 +169,8 @@ def build_3d_figure(
         except Exception as e:  # pragma: no cover - viz-only
             log.debug("slice plane skipped: %s", e)
 
-    # Lesion region centroids with annotated markers.
     if lesion_regions:
-        cx, cy, cz, txt, sz = [], [], [], [], []
+        cx, cy, cz, txt = [], [], [], []
         for r in lesion_regions:
             c = r.get("centroid")
             if not c or len(c) < 3:
@@ -123,28 +179,144 @@ def build_3d_figure(
             cy.append(c[1] * spacing[1])
             cz.append(c[2] * spacing[2])
             txt.append(f"Region {r.get('region_id')}: {_safe_float(r.get('volume_mm3'), 0)} mm³")
-            sz.append(18 + min(30, (r.get("volume_mm3", 0) or 0) / 50.0))
         if cx:
-            fig.add_trace(
+            base_traces.append(
                 go.Scatter3d(
                     x=cx,
                     y=cy,
                     z=cz,
                     mode="markers+text",
                     marker={
-                        "size": sz,
+                        "size": 12,
                         "color": "#ff2b4a",
                         "symbol": "diamond",
                         "line": {"color": "#fff", "width": 2},
                     },
                     text=[t.split(":")[0] for t in txt],
                     textposition="top center",
-                    name="lesion centroids",
+                    name="lesion sites",
                     hovertext=txt,
                     hoverinfo="text",
                     showlegend=True,
                 )
             )
+
+    n_frames = 9
+    cure_steps = np.linspace(0.0, recovery_frac, n_frames)
+    frames: list[go.Frame] = []
+    lesion_centroid = np.array([0.0, 0.0, 0.0])
+    les_v = les_f = None
+    if lesion_mesh is not None and len(lesion_mesh.vertices) > 0:
+        les_v, les_f = _decimate_mesh(lesion_mesh.vertices, lesion_mesh.faces, target_verts=2500)
+        lesion_centroid = les_v.mean(axis=0)
+
+    def _lesion_trace(verts: np.ndarray, faces: np.ndarray, cur_v: float) -> go.Mesh3d:
+        return go.Mesh3d(
+            x=verts[:, 0],
+            y=verts[:, 1],
+            z=verts[:, 2],
+            i=faces[:, 0],
+            j=faces[:, 1],
+            k=faces[:, 2],
+            color="#ff2b4a",
+            opacity=0.92,
+            name="lesion",
+            showlegend=True,
+            flatshading=True,
+            lighting={"ambient": 0.6, "diffuse": 0.9, "specular": 0.2, "roughness": 0.4},
+            contour={"show": True, "color": "#ffb3bf", "width": 2},
+            hovertemplate=f"<b>lesion</b><br>{_safe_float(cur_v, 0)} mm³<extra></extra>",
+        )
+
+    for fi, frac in enumerate(cure_steps):
+        cur_v = before_v * (1.0 - frac)
+        if les_v is not None:
+            verts = _shrink_mesh(les_v, lesion_centroid, frac)
+            data = [_lesion_trace(verts, les_f, cur_v)]
+        else:
+            data = []
+        label = (
+            "Before medicine"
+            if fi == 0
+            else (
+                "Cured"
+                if fi == n_frames - 1 and recovery_frac > 0
+                else f"Cure {(fi / (n_frames - 1)) * 100:.0f}%"
+            )
+        )
+        frames.append(
+            go.Frame(
+                data=data,
+                name=str(fi),
+                traces=[len(base_traces)],
+                layout={
+                    "title": {
+                        "text": f"{label} · lesion {_safe_float(cur_v, 0)} mm³",
+                        "font": {"color": "#e6edf3"},
+                    }
+                },
+            )
+        )
+
+    base_lesion = frames[0].data[0] if frames and frames[0].data else None
+    fig = go.Figure(
+        data=base_traces + ([base_lesion] if base_lesion is not None else []),
+        frames=frames if frames else None,
+    )
+
+    steps = [
+        {
+            "args": [[str(i)], {"frame": {"duration": 400, "redraw": True}, "mode": "immediate"}],
+            "label": f"{int(cure_steps[i] * 100)}%",
+            "method": "animate",
+        }
+        for i in range(n_frames)
+    ]
+    sliders = [
+        {
+            "active": 0,
+            "pad": {"t": 40},
+            "len": 0.7,
+            "x": 0.15,
+            "y": 0.02,
+            "steps": steps,
+            "currentvalue": {
+                "visible": True,
+                "prefix": "Cure progress: ",
+                "font": {"color": "#3fb950"},
+            },
+        }
+    ]
+    play = [
+        {
+            "buttons": [
+                {
+                    "args": [
+                        None,
+                        {"frame": {"duration": 400, "redraw": True}, "fromcurrent": True},
+                    ],
+                    "label": "▶ Play cure",
+                    "method": "animate",
+                },
+                {
+                    "args": [
+                        [None],
+                        {"frame": {"duration": 0, "redraw": True}, "mode": "immediate"},
+                    ],
+                    "label": "⏸ Pause",
+                    "method": "animate",
+                },
+            ],
+            "direction": "left",
+            "pad": {"r": 10, "t": 40},
+            "showactive": False,
+            "type": "buttons",
+            "x": 0.05,
+            "xanchor": "right",
+            "y": 0.02,
+            "yanchor": "bottom",
+        }
+    ]
 
     fig.update_layout(
         scene={
@@ -172,26 +344,28 @@ def build_3d_figure(
         plot_bgcolor="#0d1117",
         font={"color": "#e6edf3", "family": "Inter, system-ui, sans-serif"},
         legend={"bgcolor": "rgba(13,17,23,0.0)", "font": {"color": "#e6edf3"}},
-        margin={"l": 0, "r": 0, "t": 30, "b": 0},
-        height=560,
-        title={"text": "3D Neuroanatomical Reconstruction", "font": {"color": "#e6edf3"}},
+        margin={"l": 0, "r": 0, "t": 50, "b": 60},
+        height=600,
+        sliders=sliders,
+        updatemenus=play,
+        title={
+            "text": f"Before medicine · lesion {_safe_float(before_v, 0)} mm³",
+            "font": {"color": "#e6edf3"},
+        },
     )
     return fig
 
 
 def _fig_to_html_div(fig: Any, div_id: str) -> str:
-    """Embed a plotly figure as an inlined <div> (uses page-level plotly.js)."""
     return fig.to_html(full_html=False, include_plotlyjs=False, div_id=div_id)
 
 
 def _classification_section(classification: dict | None) -> tuple[str, str]:
-    """Return (section_html, plotly_div_html) for the classification tab."""
     if not classification:
-        body = (
+        return (
             '<div class="empty-state">Classification stage was not run for this subject. '
             "Run <code>brainframe classify</code> to generate a disease prediction.</div>"
-        )
-        return body, ""
+        ), ""
     pred = classification.get("prediction", 0)
     probs = classification.get("probabilities", [])
     label = DISEASE_LABELS.get(pred, f"Class {pred}")
@@ -247,11 +421,10 @@ def _lesion_section(lesion: dict) -> tuple[str, str]:
     n = lesion.get("n_regions", 0)
     regions = lesion.get("regions", [])
     if n == 0:
-        body = (
+        return (
             '<div class="empty-state">No lesion voxels detected in this subject. '
             "Tissue segmentation found no hyper-intense outliers above the detection threshold.</div>"
-        )
-        return body, ""
+        ), ""
     rows = ""
     for r in regions:
         adj = ", ".join(
@@ -303,6 +476,15 @@ def _therapy_section(therapy: dict, sim: dict, comp: dict, figures: dict) -> str
     after = sim.get("after_lesion_volume_mm3", 0.0)
     delta = before - after
     pct = (delta / before * 100) if before else 0.0
+    verdict = _medicine_verdict(pct / 100.0, float(comp.get("risk", 1.0) or 1.0))
+    verdict_box = f"""
+    <div class="verdict-box" style="border-color:{verdict["color"]}">
+      <div class="verdict-icon">{verdict["icon"]}</div>
+      <div>
+        <div class="verdict-text" style="color:{verdict["color"]}">{verdict["verdict"]}</div>
+        <div class="verdict-sub">Lesion volume reduced by <b>{_safe_float(verdict["reduction_pct"], 1)}%</b> · tissue risk {_safe_float(verdict["risk"], 3)}</div>
+      </div>
+    </div>"""
     ba_img = ""
     if figures.get("before_after"):
         ba_img = f'<img class="fig-img" src="data:image/png;base64,{_b64_file(figures["before_after"])}"/>'
@@ -312,6 +494,7 @@ def _therapy_section(therapy: dict, sim: dict, comp: dict, figures: dict) -> str
             f'<img class="fig-img" src="data:image/png;base64,{_b64_file(figures["lesion_map"])}"/>'
         )
     return f"""
+    {verdict_box}
     <div class="stat-row">
       <div class="stat-card"><div class="stat-val">{_safe_float(before, 0)}</div><div class="stat-lbl">Before (mm³)</div></div>
       <div class="stat-card"><div class="stat-val">{_safe_float(after, 0)}</div><div class="stat-lbl">After (mm³)</div></div>
@@ -434,6 +617,10 @@ body{margin:0;background:var(--bg);color:var(--txt);font-family:Inter,system-ui,
 .empty-state{background:var(--panel);border:1px dashed var(--border);border-radius:8px;padding:32px;text-align:center;color:var(--muted)}
 .therapy-params{margin-top:16px}
 .therapy-params h4{margin:0 0 8px;font-size:.95rem}
+.verdict-box{display:flex;align-items:center;gap:16px;background:var(--panel);border:2px solid;border-radius:12px;padding:18px 24px;margin-bottom:16px}
+.verdict-icon{font-size:2.2rem}
+.verdict-text{font-size:1.3rem;font-weight:800;letter-spacing:.02em}
+.verdict-sub{color:var(--muted);font-size:.85rem;margin-top:4px}
 .footer{border-top:1px solid var(--border);padding:16px 32px;color:var(--muted);font-size:.75rem;text-align:center}
 .lesion-warn{background:rgba(255,43,74,.08);border:1px solid var(--red);border-radius:8px;padding:12px 16px;margin-bottom:12px;color:#ffb3bf}
 """
@@ -479,11 +666,12 @@ def generate_unified_report(
     lesion_regions = lesion_report.get("regions", [])
     score = compatibility.get("score", 0.0)
 
-    # 3D figure
     three_div = ""
     if mesh_result is not None:
         try:
-            fig3d = build_3d_figure(mesh_result, label_volume, spacing, lesion_regions)
+            fig3d = build_3d_figure(
+                mesh_result, label_volume, spacing, lesion_regions, simulation=simulation
+            )
             three_div = _fig_to_html_div(fig3d, "brain-3d")
         except Exception as e:  # pragma: no cover
             log.warning("3D figure build failed: %s", e)

@@ -78,3 +78,19 @@ def test_split_indices_deterministic():
     # disjoint
     assert set(tr) & set(va) == set()
     assert set(tr) & set(te) == set()
+
+
+def test_brain_phantom_anatomically_plausible():
+    """The realistic brain phantom should have two hemispheres + tissues + lesions."""
+    from brainframe.config import LABELS
+    from brainframe.data.brain_phantom import generate_brain_volume
+
+    vol, labels = generate_brain_volume(shape=(64, 80, 64), n_lesions=2, seed=3)
+    assert vol.shape == (64, 80, 64)
+    for name in ["gray_matter", "white_matter", "csf", "lesion"]:
+        assert (labels == LABELS[name]).sum() > 0, f"{name} missing"
+    assert (labels == LABELS["gray_matter"]).sum() > (labels == LABELS["white_matter"]).sum()
+    brain = (labels > 0).sum()
+    assert 0 < (labels == LABELS["lesion"]).sum() < brain * 0.05
+    mid = vol.shape[0] // 2
+    assert (labels[:mid] > 0).sum() > 100 and (labels[mid:] > 0).sum() > 100

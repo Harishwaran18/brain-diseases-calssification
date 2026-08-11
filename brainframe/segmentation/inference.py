@@ -64,15 +64,21 @@ def _assign_labels(masks: list[Mask], image: np.ndarray, classes: list[str]) -> 
             out[band] = LABELS[band_labels[rank]]
         prev_mask = prev_mask | cur
 
-    # Lesion detection: extreme hyper-intense outlier (e.g. >3 sigma above mean) that is
-    # spatially small. Conservative so it does not hijack normal tissue.
-    # NOTE: compute the z-score on the raw (un-clipped) image, because
-    # normalize_intensity clips to the 99th percentile, which suppresses the very
-    # hyper-intense outliers we want to flag as lesions.
+    # Lesion detection: extreme hyper-intense outlier well above the brightest
+    # normal tissue (white matter). We threshold at the 99.5th percentile of the
+    # foreground so only genuinely pathological bright voxels are flagged, not
+    # normal white matter. Conservative so it does not hijack normal tissue.
+    # NOTE: compute on the raw (un-clipped) image, because normalize_intensity
+    # clips to the 99th percentile and suppresses the outliers we want to flag.
     fg_raw = img[img > img.mean()]
-    raw_std = float(fg_raw.std()) if fg_raw.size else 1.0
-    z = (img - float(img.mean())) / (raw_std or 1.0)
-    hot = z > 3.0
+    if fg_raw.size:
+        p995 = float(np.percentile(fg_raw, 99.5))
+        wm_peak = float(np.percentile(fg_raw, 90))  # approx white-matter intensity
+        # Lesion threshold: at least 99.5th percentile AND clearly above WM peak.
+        thresh = max(p995, wm_peak * 1.25)
+        hot = img >= thresh
+    else:
+        hot = np.zeros(img.shape[:2], dtype=bool)
     if hot.sum() > 0:
         out[hot] = LABELS["lesion"]
     return out
