@@ -19,6 +19,7 @@ import numpy as np
 from brainframe.config import BrainFrameConfig, default_config, load_config
 from brainframe.data.loaders import LoadResult, load_volume
 from brainframe.evaluation.therapy_model import TherapySpec
+from brainframe.reconstruction.marching import MeshResult
 from brainframe.utils.logging import get_logger
 from brainframe.utils.seed import set_seed
 
@@ -86,7 +87,24 @@ class Session:
         return self
 
     def load_demo_brain(self) -> Session:
-        """Load the bundled demo brain (works with no upload/download)."""
+        """Load the bundled demo brain (works with no upload/download).
+
+        Prefers the **real** ICBM152 human brain template when the bundled
+        assets are present; falls back to the synthetic brain phantom otherwise.
+        """
+        from brainframe.data.real_brain import has_real_brain, load_real_brain_volume
+
+        if has_real_brain():
+            vol, labels, spacing = load_real_brain_volume()
+            # Seed the label volume so segmentation is skipped (already real).
+            self.volume = vol
+            self.spacing = spacing
+            self.volume_path = None
+            self.load_result = None
+            self._clear_downstream()
+            self.label_volume = labels
+            log.info("Loaded REAL ICBM152 brain: shape=%s", vol.shape)
+            return self
         demo = Path("assets/demo_brain.nii.gz")
         if not demo.exists():
             # Fall back to the brain phantom generator.
@@ -95,6 +113,20 @@ class Session:
             vol, _ = generate_brain_volume(shape=(96, 128, 96), n_lesions=2, seed=7)
             return self.ingest(vol)
         return self.ingest(demo)
+
+    def load_real_cortex(self) -> MeshResult | None:
+        """Return the real fsaverage cortical surface mesh, or ``None``.
+
+        Loaded once and cached on the session for the 3D viewer to render a
+        genuine folded human brain cortex behind the segmented tissues.
+        """
+        from brainframe.data.real_brain import has_real_brain, load_real_cortex_mesh
+
+        if not has_real_brain():
+            return None
+        if getattr(self, "_cortex_mesh", None) is None:
+            self._cortex_mesh = load_real_cortex_mesh()
+        return self._cortex_mesh
 
     # -- Step 2: segment ---------------------------------------------------
     def segment(self) -> Session:
@@ -300,6 +332,9 @@ class Session:
             figures=fig_paths,
             subject=self.volume_path or "in-memory volume",
             out_path=report_path,
+            cortex_mesh=getattr(self, "_cortex_mesh", None).meshes[0]
+            if getattr(self, "_cortex_mesh", None)
+            else None,
         )
         # JSON manifest
         manifest = {

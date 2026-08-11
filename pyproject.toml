@@ -43,6 +43,16 @@ viz = [
     "pyvista>=0.43",
     "plotly>=5.18",
 ]
+# Real human brain data + the NeuroCure interactive Streamlit platform.
+realbrain = [
+    "nilearn>=0.10",
+    "fast-simplification>=0.1.7",
+]
+app = [
+    "streamlit>=1.30",
+    "nilearn>=0.10",
+    "fast-simplification>=0.1.7",
+]
 dev = [
     "pytest>=7.4",
     "pytest-cov>=4.1",

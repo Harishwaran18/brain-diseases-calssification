@@ -58,12 +58,15 @@ st.caption(
 recon = sess.reconstruction
 if recon is not None:
     lesion_regions = sess.evaluation["lesion"].to_dict().get("regions", [])
+    cortex = sess.load_real_cortex()
+    cortex_mesh = cortex.meshes[0] if cortex and cortex.meshes else None
     render_brain_3d(
         recon["meshes"],
         label_volume=recon["label_volume"],
         spacing=recon["spacing"],
         lesion_regions=lesion_regions,
         simulation=sim,
+        cortex_mesh=cortex_mesh,
         height=620,
     )
 else:
