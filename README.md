@@ -179,6 +179,14 @@ brain reconstruction → get a disease prediction → receive a recommended curi
 technique → watch a **live 3D simulation** of the cure applied to the real brain →
 download a unified report.
 
+The demo brain is a **real human brain**: the ICBM152 T1 template (an averaged MRI of
+real subjects) is segmented, and the 3D viewer renders the real FreeSurfer **fsaverage
+pial cortical surface** — the genuine folded cortex with anatomically correct gyri and
+sulci — with smooth shading. The real-brain assets are bundled under
+`assets/real_brain/` and built via `python scripts/build_real_brain_assets.py` (uses
+[nilearn](https://nilearn.github.io/) + `fast-simplification`; declared in the
+`realbrain`/`app` extras).
+
 ```bash
 python -m streamlit run neurocure_app/app.py --server.port 12000 --server.headless true
 ```

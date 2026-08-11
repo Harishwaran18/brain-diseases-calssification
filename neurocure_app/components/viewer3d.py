@@ -24,6 +24,7 @@ def render_brain_3d(
     spacing: tuple[float, float, float] = (1.0, 1.0, 1.0),
     lesion_regions: list[dict] | None = None,
     simulation: dict | None = None,
+    cortex_mesh: Any = None,
     *,
     height: int = 620,
 ) -> None:
@@ -35,6 +36,7 @@ def render_brain_3d(
             spacing=spacing,
             lesion_regions=lesion_regions,
             simulation=simulation,
+            cortex_mesh=cortex_mesh,
         )
         fig.update_layout(height=height)
         st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False})

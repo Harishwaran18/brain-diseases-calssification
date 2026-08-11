@@ -22,11 +22,13 @@ from brainframe.utils.logging import get_logger
 log = get_logger("reporting.unified_report")
 
 # Medically-inspired tissue palette (name -> (color, opacity, show_edges))
+# Realistic cortical colors based on anatomical references.
 TISSUE_STYLE: dict[str, tuple[str, float, bool]] = {
-    "gray_matter": ("#c9a96e", 0.18, False),
-    "white_matter": ("#e8e0d0", 0.55, False),
-    "csf": ("#3aa6e6", 0.22, False),
-    "lesion": ("#ff2b4a", 0.92, True),
+    "cortex": ("#b5651d", 0.85, False),  # real pial surface: warm cortical tan
+    "gray_matter": ("#c9a96e", 0.30, False),  # cortical gray matter shell
+    "white_matter": ("#efe8d8", 0.45, False),  # pale white matter core
+    "csf": ("#3aa6e6", 0.18, False),  # cerebrospinal fluid (ventricles)
+    "lesion": ("#ff2b4a", 0.95, True),  # hyper-intense lesion (red, outlined)
     "background": ("#222222", 0.0, False),
 }
 DISEASE_LABELS: dict[int, str] = {
@@ -76,6 +78,26 @@ def _shrink_mesh(vertices: np.ndarray, centroid: np.ndarray, frac: float) -> np.
     return centroid + (vertices - centroid) * (1.0 - frac)
 
 
+def _align_to_volume(cortex_verts: np.ndarray, vol_pts: np.ndarray | None) -> np.ndarray:
+    """Transform cortex MNI-mm vertices into the volume mesh coordinate space.
+
+    The fsaverage pial surface lives in MNI millimetres (centered near origin),
+    while the Marching-Cubes tissue meshes are in voxel-index space. This maps
+    the cortex bounding box onto the volume bounding box so the realistic folded
+    cortex overlays the segmented tissues.
+    """
+    if vol_pts is None or len(cortex_verts) == 0:
+        return cortex_verts - cortex_verts.mean(axis=0)
+    v_min, v_max = vol_pts.min(axis=0), vol_pts.max(axis=0)
+    c_min, c_max = cortex_verts.min(axis=0), cortex_verts.max(axis=0)
+    c_span = np.where(c_max - c_min < 1e-6, 1.0, c_max - c_min)
+    scale = (v_max - v_min) / c_span
+    # Uniform scale to preserve cortical fold proportions (use mean axis scale).
+    scale = np.full(3, float(scale.mean()))
+    shifted = (cortex_verts - c_min) * scale + v_min
+    return shifted
+
+
 def _medicine_verdict(recovery_frac: float, risk: float) -> dict:
     """Return a precise medicine-efficacy verdict from lesion reduction + risk."""
     if recovery_frac >= 0.20 and risk < 0.85:
@@ -99,12 +121,15 @@ def build_3d_figure(
     spacing: tuple[float, float, float] = (1.0, 1.0, 1.0),
     lesion_regions: list[dict] | None = None,
     simulation: dict | None = None,
+    cortex_mesh: MeshData | None = None,
 ) -> Any:
     """Build an animated plotly 3D figure: multi-tissue brain + live cure frames.
 
     The lesion mesh shrinks across animation frames (medicine taking effect),
     with a play button + slider so the cure plays live in the viewer. Meshes are
-    decimated to keep the self-contained HTML small and responsive.
+    decimated to keep the self-contained HTML small and responsive. When a real
+    fsaverage cortical surface is provided it is rendered with smooth shading as
+    the realistic brain backdrop.
     """
     import plotly.graph_objects as go
 
@@ -114,6 +139,45 @@ def build_3d_figure(
     recovery_frac = ((before_v - after_v) / before_v) if before_v > 0 else 0.0
 
     base_traces: list[Any] = []
+
+    # Compute the segmented-volume mesh bounding box so the (MNI-mm) cortex can be
+    # aligned into the same coordinate space as the voxel-index tissue meshes.
+    vol_pts = (
+        np.concatenate([m.vertices for m in mesh_result.meshes if len(m.vertices) > 0], axis=0)
+        if any(len(m.vertices) > 0 for m in mesh_result.meshes)
+        else None
+    )
+
+    # Real fsaverage pial cortex: render first (backmost) with smooth shading so
+    # the viewer shows genuine folded gyri/sulci, not a smooth ellipsoid.
+    if cortex_mesh is not None and len(cortex_mesh.vertices) > 0 and len(cortex_mesh.faces) > 0:
+        cv, cf = _decimate_mesh(cortex_mesh.vertices, cortex_mesh.faces, target_verts=12000)
+        cv = _align_to_volume(cv, vol_pts)
+        base_traces.append(
+            go.Mesh3d(
+                x=cv[:, 0],
+                y=cv[:, 1],
+                z=cv[:, 2],
+                i=cf[:, 0],
+                j=cf[:, 1],
+                k=cf[:, 2],
+                color="#c98a4b",
+                opacity=0.92,
+                name="Cortex (fsaverage)",
+                showlegend=True,
+                flatshading=False,
+                lighting={
+                    "ambient": 0.45,
+                    "diffuse": 0.85,
+                    "specular": 0.35,
+                    "roughness": 0.55,
+                    "fresnel": 0.2,
+                },
+                lightposition={"x": 100, "y": 200, "z": 150},
+                hovertemplate="<b>real cortex</b><br>fsaverage pial surface<extra></extra>",
+            )
+        )
+
     ordered = sorted(
         mesh_result.meshes,
         key=lambda m: 0 if m.label == "lesion" else (1 if m.label == "white_matter" else 2),
@@ -139,7 +203,8 @@ def build_3d_figure(
                 opacity=opacity,
                 name=m.label.replace("_", " ").title(),
                 showlegend=True,
-                lighting={"ambient": 0.55, "diffuse": 0.8, "specular": 0.25, "roughness": 0.6},
+                flatshading=False,
+                lighting={"ambient": 0.5, "diffuse": 0.8, "specular": 0.3, "roughness": 0.6},
                 hovertemplate=f"<b>{m.label}</b><extra></extra>",
             )
         )
@@ -655,6 +720,7 @@ def generate_unified_report(
     figures: dict[str, str] | None = None,
     subject: str = "N/A",
     out_path: str | Path | None = None,
+    cortex_mesh: MeshData | None = None,
 ) -> str:
     """Build a single self-contained HTML page combining all pipeline outputs."""
     figures = figures or {}
@@ -670,7 +736,12 @@ def generate_unified_report(
     if mesh_result is not None:
         try:
             fig3d = build_3d_figure(
-                mesh_result, label_volume, spacing, lesion_regions, simulation=simulation
+                mesh_result,
+                label_volume,
+                spacing,
+                lesion_regions,
+                simulation=simulation,
+                cortex_mesh=cortex_mesh,
             )
             three_div = _fig_to_html_div(fig3d, "brain-3d")
         except Exception as e:  # pragma: no cover

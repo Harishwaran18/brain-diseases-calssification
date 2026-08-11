@@ -33,9 +33,10 @@ simulator + compatibility score). Canonical label index in `brainframe.config.LA
 - Simulator: avoid walrus operator in boolean array expressions (precedence bug).
 
 ## Testing
-- `python -m pytest -q` — 72 tests (was 36; +33 for therapy/session/app), all CPU-only,
-  synthetic NIfTI fixtures in `tests/conftest.py`. No network, no real data.
-- `python -m ruff check . && python -m ruff format --check .` — must pass clean.
+- `python -m pytest -q` -- 77 tests (was 36; +33 for therapy/session/app, +5 real-brain),
+  all CPU-only, synthetic NIfTI fixtures in `tests/conftest.py`. No network, no real data
+  (real-brain tests skip gracefully if assets absent).
+- `python -m ruff check . && python -m ruff format --check .` -- must pass clean.
 - mypy: `python -m mypy brainframe --ignore-missing-imports` (numpy stub syntax warning
   is a version quirk, not our code).
 - AppTest (streamlit.testing.v1): `page_link` is not surfaced as an element attribute in
@@ -53,9 +54,17 @@ simulator + compatibility score). Canonical label index in `brainframe.config.LA
 - Run: `python -m streamlit run neurocure_app/app.py --server.port 12000 --server.headless true`
 - 6-page multipage app: app.py (home) + pages/1_Upload, 2_3D_Brain, 3_Predict,
   4_Therapy, 5_Simulate, 6_Report.
-- 3D viewer uses `st.plotly_chart` (Plotly WebGL) — NOT stpyvista (streamlit-version
-  incompatibility). `build_3d_figure` in `brainframe.reporting.unified_report` builds
-  the static+animated figure; `build_cure_frames` in `brainframe.therapy.animation`
+- **Real human brain data** (`brainframe/data/real_brain.py`): the demo scan uses the
+  real ICBM152 T1 brain template (averaged human MRI) and the 3D viewer renders the real
+  fsaverage pial cortical surface (genuine folded gyri/sulci, 13k verts) as the brain
+  backdrop. Assets bundled as `assets/real_brain/{icbm152_volume.npz,fsaverage_pial.npz}`;
+  build with `python scripts/build_real_brain_assets.py` (needs nilearn + fast-simplification,
+  declared in the `realbrain`/`app` extras). `Session.load_real_cortex()` caches the mesh.
+- 3D viewer uses `st.plotly_chart` (Plotly WebGL) with `flatshading=False` + vertex
+  normals for smooth shading — NOT stpyvista (streamlit-version incompatibility).
+  `build_3d_figure` (in `brainframe.reporting.unified_report`) builds the static+animated
+  figure and accepts a `cortex_mesh=` kwarg; `_align_to_volume` maps MNI-mm cortex coords
+  onto the voxel-index tissue meshes. `build_cure_frames` in `brainframe.therapy.animation`
   produces the per-timestep lesion-shrinking frames.
 - Therapy: `brainframe/therapy/{library,recommender,animation}.py` — 4 curated
   techniques (disease classes 0-3), deterministic recommender, plotly cure animation.
@@ -63,3 +72,5 @@ simulator + compatibility score). Canonical label index in `brainframe.config.LA
   simulate each early-return if their result is already cached); `ingest()` clears
   downstream state via `_clear_downstream()`.
 - `use_container_width` deprecation warnings are cosmetic (streamlit 1.61) — non-blocking.
+- Headless test browser has no WebGL, so Plotly 3D shows a placeholder there; verify
+  server-side via `fig.data` trace names + the streamlit log "Real cortex mesh" line.
