@@ -18,22 +18,47 @@ reconstruction (Marching Cubes + metrics) -> evaluation (lesion analysis + thera
 simulator + compatibility score). Canonical label index in `brainframe.config.LABELS`:
 {background:0, gray_matter:1, white_matter:2, csf:3, lesion:4}.
 
-## Evidence-based classifier (10-disease taxonomy) — added 2026-08
-- `brainframe/classification/diseases.py`: 10 diseases (0=Healthy,1=AD,2=PD,3=MS,
-  4=Glioma,5=Stroke,6=Epilepsy,7=HD,8=ALS,9=TBI). Each DiseaseSignature carries
-  preferred_regions, pattern, laterality, size_mm3 range, region_count, summary, references.
-- `brainframe/data/atlas.py`: voxel->region labelling (RAS: axis0=X/LR, axis1=Y/PA,
-  axis2=Z/IS). `region_at(voxel_xyz, shape)` -> region str. `label_lesion_cluster()`
-  -> {region, hemisphere, ...}. `classify_pattern()` -> focal/diffuse/symmetric/periventricular.
+## Evidence-based classifier + trained MLP (21-disease taxonomy) — updated 2026-08
+- `brainframe/classification/diseases.py`: **21 diseases** (0=Healthy,1=AD,2=PD,
+  3=MS,4=Glioma,5=Stroke,6=Epilepsy,7=HD,8=ALS,9=TBI,10=Meningioma,11=Metastasis,
+  12=MCA_Infarct,13=SDH,14=NPH,15=CJD,16=FTD,17=LBD,18=VaD,19=PSP,20=Abscess).
+  Each DiseaseSignature carries preferred_regions, pattern, laterality, size_mm3
+  range, region_count, summary, references. REGIONS/PATTERNS/LATERALITIES expanded.
+- `brainframe/data/atlas.py`: voxel->region labelling. `classify_pattern()` ->
+  focal/diffuse/symmetric/periventricular/ring_enhancing.
 - `brainframe/classification/evidence.py`: `classify(lesion_report, label_volume, shape)`
   -> EvidenceReport(prediction, confidence, disease, features, scores, differential).
   Scores 4 axes (region/pattern/laterality/size); confidence = top score + dominance
   margin bonus, capped. Honest: high confidence ONLY when all axes agree.
-  Demo MS lesion -> 95% confidence (periventricular bilateral Dawson's-finger pattern).
-- `session.predict()` uses evidence classifier as PRIMARY engine; NN is secondary signal.
+- `brainframe/classification/trained_model.py`: **trained 4-layer MLP** (DiseaseMLP)
+  over the lesion features (256->128->64->N), trained on signature-derived synthetic
+  data (`scripts/train_disease_classifier.py`, ~300 epochs, val acc ~83%). Weights
+  saved to `assets/models/disease_mlp.pt` (gitignored; auto-trained on first use).
+  `TrainedClassifier.predict_proba()` returns a learned softmax over all 21 classes.
+- `session.predict()` blends THREE engines: (1) evidence classifier (primary,
+  transparent confidence), (2) trained MLP (learned probs, blended 0.55/0.45 when
+  it agrees), (3) 3D CNN (optional secondary). Output dict adds `mlp_probabilities`.
 - Output dict keys: prediction, confidence, disease_name, disease_short_name,
   features{pattern,laterality,dominant_region,total_volume_mm3}, evidence{scores},
-  differential[{name,short_name,probability,score}], evidence_summary, probabilities.
+  differential[{name,short_name,probability,score}], evidence_summary, probabilities,
+  mlp_probabilities.
+
+## Three.js WebGL brain viewer (replaces Plotly 3D) — added 2026-08
+- `neurocure_app/components/three_viewer.py`: genuine WebGL renderer (Three.js r169
+  via importmap CDN) — the international standard for in-browser 3D brain viz
+  (used by BrainBrowser / Allen Brain Atlas). PBR (MeshStandardMaterial) shading,
+  multi-light (ambient+key+rim+fill) for depth cueing of real gyri/sulci,
+  OrbitControls (rotate/zoom/pan), full-res fsaverage cortex split into L/R
+  hemispheres with subtly different tissue tints.
+- Cure animation: lesion mesh shrinks toward centroid over 9 frames; on-canvas
+  overlay shows the DISEASE NAME + CURING TECHNIQUE NAME + per-frame lesion volume.
+  ▶ Play cure / ↺ Reset view buttons.
+- `render_three_brain(cortex_mesh, tissue_meshes, lesion_mesh, disease_name,
+  technique_name, before_volume, after_volume)`.
+- Pages `2_3D_Brain.py` and `5_Simulate.py` use the Three.js viewer.
+- `build_3d_figure()` (unified_report.py, for the self-contained HTML report)
+  still uses Plotly but now also takes disease_name/technique_name and shows them
+  in the cure frame titles as a fallback renderer.
 
 ## Realistic brain rendering — updated 2026-08
 - fsaverage pial cortex rebuilt at 32,770 verts / 65,532 faces (was 13k) via

@@ -6,7 +6,7 @@ import streamlit as st
 
 from neurocure_app import state
 from neurocure_app.components import charts
-from neurocure_app.components.viewer3d import render_brain_3d
+from neurocure_app.components.three_viewer import render_three_brain
 
 st.title("🎬 Live Cure Simulation")
 sess = state.require_session()
@@ -32,11 +32,16 @@ recovery = (before - after) / before if before else 0.0
 comp = sess.evaluation["compatibility"].to_dict()
 risk = comp.get("risk", 0.5)
 
+disease_name = sess.classification.get("disease_name") if sess.classification else None
+technique_name = sess.recommendation.technique.name
+
 st.markdown(
     f"""
     <div style="background:#161b22;border-radius:12px;padding:20px;margin:16px 0">
-      <div style="color:#3aa6e6;font-size:.8rem;text-transform:uppercase">Recommended therapy</div>
-      <div style="font-size:1.2rem;font-weight:700;color:#e6edf3">{sess.recommendation.technique.name}</div>
+      <div style="color:#3aa6e6;font-size:.8rem;text-transform:uppercase">Treating disease</div>
+      <div style="font-size:1.2rem;font-weight:700;color:#e6edf3">{disease_name or "—"}</div>
+      <div style="color:#3fb950;font-size:.8rem;text-transform:uppercase;margin-top:10px">Curing technique</div>
+      <div style="font-size:1.2rem;font-weight:700;color:#e6edf3">{technique_name}</div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -50,24 +55,26 @@ c3.metric("Recovery", f"{recovery:.1%}")
 st.subheader("Verdict")
 charts.verdict_banner(recovery, risk)
 
-st.subheader("LIVE 3D cure animation")
+st.subheader("LIVE 3D cure animation (WebGL)")
 st.caption(
-    "Press ▶ Play to watch the lesion mesh shrink toward its centroid as the therapy "
-    "takes effect over time. The colored volume reflects the lesion reversing."
+    "Genuine WebGL (Three.js) animation: press ▶ Play cure to watch the lesion "
+    "mesh shrink toward its centroid as the therapy takes effect. The overlay "
+    "names the disease being treated and the curing technique being applied."
 )
 recon = sess.reconstruction
 if recon is not None:
-    lesion_regions = sess.evaluation["lesion"].to_dict().get("regions", [])
     cortex = sess.load_real_cortex()
     cortex_mesh = cortex.meshes[0] if cortex and cortex.meshes else None
-    render_brain_3d(
-        recon["meshes"],
-        label_volume=recon["label_volume"],
-        spacing=recon["spacing"],
-        lesion_regions=lesion_regions,
-        simulation=sim,
+    tissue_meshes = list(recon["meshes"].meshes)
+    lesion_mesh = next((m for m in tissue_meshes if m.label == "lesion"), None)
+    render_three_brain(
         cortex_mesh=cortex_mesh,
-        height=620,
+        tissue_meshes=tissue_meshes,
+        lesion_mesh=lesion_mesh,
+        disease_name=disease_name,
+        technique_name=technique_name,
+        before_volume=float(before),
+        after_volume=float(after),
     )
 else:
     st.warning("Reconstruction not available; visit the 3D Brain page first.")

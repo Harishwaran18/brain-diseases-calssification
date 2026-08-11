@@ -25,10 +25,16 @@ def render_brain_3d(
     lesion_regions: list[dict] | None = None,
     simulation: dict | None = None,
     cortex_mesh: Any = None,
+    disease_name: str | None = None,
+    technique_name: str | None = None,
     *,
     height: int = 620,
 ) -> None:
-    """Render the interactive 3D brain with optional cure animation in-page."""
+    """Render the interactive 3D brain with optional cure animation in-page.
+
+    The cure-animation frame titles name the disease being treated and the
+    curing technique being applied, so the viewer always shows what is happening.
+    """
     try:
         fig = build_3d_figure(
             mesh_result,
@@ -37,6 +43,8 @@ def render_brain_3d(
             lesion_regions=lesion_regions,
             simulation=simulation,
             cortex_mesh=cortex_mesh,
+            disease_name=disease_name,
+            technique_name=technique_name,
         )
         fig.update_layout(height=height)
         st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False})
