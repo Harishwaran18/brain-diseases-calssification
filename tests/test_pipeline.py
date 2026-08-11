@@ -36,6 +36,35 @@ def test_run_pipeline_full(synthetic_volume, default_cfg, tmp_path):
     assert res.report_path and os.path.exists(res.report_path)
     assert res.compatibility_score is not None
     assert 0.0 <= res.compatibility_score <= 1.0
+    # The unified single-page report is the primary deliverable.
+    unified = tmp_path / "pipeline" / "report.html"
+    assert unified.exists()
+    html = unified.read_text()
+    assert "BrainFrame" in html and "3D Reconstruction" in html
+    assert "Disease Prediction" in html and "Therapy Simulation" in html
+
+
+def test_unified_report_contains_all_sections(tmp_path):
+    from brainframe.reporting.unified_report import generate_unified_report
+
+    html = generate_unified_report(
+        mesh_result=None,
+        recon_metrics={"per_label": {}, "atrophy_ratios": {}, "total_volume_mm3": 0.0},
+        lesion_report={"total_lesion_volume_mm3": 0.0, "n_regions": 0, "regions": []},
+        simulation={"before_lesion_volume_mm3": 0.0, "after_lesion_volume_mm3": 0.0,
+                    "affected_voxels": 0, "affected_fraction": 0.0, "propagated": False},
+        compatibility={"coverage": 0.0, "recovery": 0.0, "risk": 0.0, "score": 0.0, "components": {}},
+        therapy={"mode": "regeneration", "target_label": "lesion", "target_mode": "centroid",
+                 "radius_mm": 10.0, "dose": 1.0, "kernel": "gaussian", "sigma_mm": 5.0},
+        classification=None,
+        out_path=tmp_path / "report.html",
+    )
+    assert "<!doctype html>" in html
+    # All six tab sections are present on the single page.
+    for section in ["t-3d", "t-clf", "t-les", "t-ther", "t-met", "t-xs"]:
+        assert f'id="{section}"' in html
+    assert (tmp_path / "report.html").exists()
+
 
 
 def test_run_pipeline_reconstruct_only(synthetic_label_volume, default_cfg, tmp_path):

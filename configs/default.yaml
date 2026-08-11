@@ -14,7 +14,7 @@ paths:
 
 # Stages enabled in the full `run` pipeline.
 pipeline:
-  stages: [segment, reconstruct, evaluate]
+  stages: [segment, reconstruct, evaluate, classify]
   cache: true
   cache_dir: data/outputs/cache
 

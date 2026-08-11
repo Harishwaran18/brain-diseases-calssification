@@ -23,6 +23,7 @@ from brainframe.reconstruction.marching import extract_meshes, save_meshes
 from brainframe.reconstruction.mesh_metrics import compute_metrics
 from brainframe.reconstruction.stacking import stack_slices
 from brainframe.reconstruction.visualize import render_3d, save_cross_sections
+from brainframe.reporting.unified_report import generate_unified_report
 from brainframe.segmentation.inference import segment_volume
 from brainframe.segmentation.sam_wrapper import build_segmenter
 from brainframe.utils.io import ensure_dir, save_json
@@ -158,6 +159,33 @@ def run_evaluation(
     }
 
 
+def run_classification(
+    volume_path: str | Path,
+    cfg: BrainFrameConfig,
+    device: str = "cpu",
+) -> dict | None:
+    """Optional stage: disease classification with the fallback CNN (no checkpoint needed)."""
+    try:
+        from brainframe.classification.models import build_classifier
+        from brainframe.classification.predict import predict_volume
+        from brainframe.utils.device import resolve_device
+
+        resolved = resolve_device(device)
+        model = build_classifier(cfg.classification.model).to(resolved).eval()
+        out = predict_volume(
+            model, str(volume_path), device=resolved, patch_size=cfg.classification.data.patch_size
+        )
+        log.info(
+            "Classification: predicted class %s (conf %.3f)",
+            out["prediction"],
+            max(out["probabilities"]),
+        )
+        return out
+    except Exception as e:  # pragma: no cover - optional stage
+        log.warning("Classification stage skipped: %s", e)
+        return None
+
+
 def run_pipeline(
     volume: np.ndarray,
     cfg: BrainFrameConfig,
@@ -165,6 +193,7 @@ def run_pipeline(
     device: str = "cpu",
     stages: list[str] | None = None,
     spacing: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    volume_path: str | Path | None = None,
 ) -> PipelineResult:
     """Run the full segmentation -> reconstruction -> evaluation pipeline."""
     set_seed(cfg.seed)
@@ -176,6 +205,9 @@ def run_pipeline(
 
     result = PipelineResult()
     label_volume = None
+    recon: dict | None = None
+    evaluation: dict | None = None
+    classification: dict | None = None
 
     if "segment" in stages:
         log.info("=== Stage: segmentation ===")
@@ -205,12 +237,69 @@ def run_pipeline(
             label_volume = run_segmentation(
                 volume, cfg, cache_dir, device=device, use_cache=cfg.pipeline.cache
             )
-        ev = run_evaluation(label_volume, cfg, out / "evaluation", spacing=spacing)
-        result.report_path = ev["report"].get("figures", {}).get("html")
-        result.metrics["evaluation"] = ev["report"]
-        result.compatibility_score = ev["score"]
+        evaluation = run_evaluation(label_volume, cfg, out / "evaluation", spacing=spacing)
+        result.report_path = evaluation["report"].get("figures", {}).get("html")
+        result.metrics["evaluation"] = evaluation["report"]
+        result.compatibility_score = evaluation["score"]
         result.stages.append("evaluate")
+
+    if "classify" in stages and volume_path is not None:
+        log.info("=== Stage: classification ===")
+        classification = run_classification(volume_path, cfg, device=device)
+        if classification is not None:
+            result.metrics["classification"] = classification
+            result.stages.append("classify")
+
+    # Build the unified single-page report combining every available stage.
+    _build_unified_report(
+        result, recon, evaluation, classification, label_volume, spacing, out, volume_path
+    )
 
     save_json(result.to_dict(), out / "pipeline_result.json")
     log.info("Pipeline complete. Stages: %s", result.stages)
     return result
+
+
+def _build_unified_report(
+    result: PipelineResult,
+    recon: dict | None,
+    evaluation: dict | None,
+    classification: dict | None,
+    label_volume: np.ndarray | None,
+    spacing: tuple[float, float, float],
+    out: Path,
+    volume_path: str | Path | None,
+) -> None:
+    """Assemble the unified single-page HTML from all available stage artifacts."""
+    if recon is None and evaluation is None:
+        return
+    try:
+        fig_paths: dict[str, str] = {}
+        if evaluation is not None:
+            fig_paths.update(evaluation["report"].get("figures", {}))
+        # Cross-sections are saved under out/figures by run_reconstruction.
+        xs_dir = out / "figures"
+        for name in ("cross_axial", "cross_coronal", "cross_sagittal"):
+            p = xs_dir / f"{name}.png"
+            if p.exists():
+                fig_paths[name] = str(p)
+
+        report_path = out / "report.html"
+        generate_unified_report(
+            mesh_result=recon["meshes"] if recon else None,
+            recon_metrics=recon["metrics"] if recon else None,
+            lesion_report=evaluation["lesion"].to_dict() if evaluation else None,
+            simulation=evaluation["simulation"].to_dict() if evaluation else None,
+            compatibility=evaluation["compatibility"].to_dict() if evaluation else None,
+            therapy=evaluation["report"].get("therapy") if evaluation else None,
+            classification=classification,
+            label_volume=label_volume,
+            spacing=spacing,
+            figures=fig_paths,
+            subject=str(volume_path) if volume_path else "N/A",
+            out_path=report_path,
+        )
+        # The unified report becomes the primary deliverable.
+        result.report_path = str(report_path)
+    except Exception as e:  # pragma: no cover - viz-only, never break the pipeline
+        log.warning("Unified report generation failed: %s", e)

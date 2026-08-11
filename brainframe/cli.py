@@ -232,6 +232,7 @@ def cmd_run(args) -> int:
         device=cfg.device,
         stages=args.stages or cfg.pipeline.stages,
         spacing=result.spacing,
+        volume_path=args.input,
     )
     print(f"pipeline result: {res.to_dict()}")
     return 0
