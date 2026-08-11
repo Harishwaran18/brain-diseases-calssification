@@ -171,12 +171,21 @@ class Session:
     def predict(self) -> Session:
         """Run disease classification on the ingested volume.
 
-        Primary engine: the evidence-based differential classifier
-        (:mod:`~brainframe.classification.evidence`), which scores the
-        segmentation's lesion features against the 10-disease taxonomy and
-        produces a calibrated, transparent confidence. A lightweight 3D CNN
-        is run as a *secondary* signal when available and blended into the
-        reported probabilities.
+        Three complementary engines are blended:
+
+        1. **Evidence-based differential classifier** (primary, transparent) —
+           scores lesion features against the 21-disease taxonomy on four
+           interpretable axes (region, pattern, laterality, size) and produces
+           an auditable per-axis breakdown plus a calibrated confidence.
+        2. **Trained MLP** (feature-based, learned) — a 4-layer neural net
+           trained on signature-derived data (:mod:`brainframe.classification.
+           trained_model`); gives a learned probability distribution over all
+           diseases.
+        3. **3D CNN** (optional secondary) — when MONAI weights are available.
+
+        The headline prediction and confidence come from the evidence engine;
+        the MLP and CNN sharpen the reported probability distribution when
+        they agree with it.
         """
         if self.classification is not None:
             return self
@@ -188,6 +197,23 @@ class Session:
         lesion = self.evaluation["lesion"]
         lesion_dict = lesion.to_dict() if hasattr(lesion, "to_dict") else lesion
         report = classify(lesion_dict, self.label_volume, self.spacing)
+        features = report.features
+        # Trained MLP over the same features -> learned probability vector.
+        mlp_probs: list[float] = []
+        try:
+            from brainframe.classification.trained_model import TrainedClassifier
+
+            clf = TrainedClassifier()
+            if clf.available:
+                mlp_probs = clf.predict_proba(
+                    features.total_volume_mm3,
+                    features.n_regions,
+                    features.pattern,
+                    features.laterality,
+                    features.dominant_region,
+                ).tolist()
+        except Exception as e:  # pragma: no cover - optional
+            log.debug("Trained MLP skipped: %s", e)
         # Materialise the in-memory volume to a temp NIfTI for the secondary NN.
         nn_probs: list[float] = []
         if self.volume_path is None and self.volume is not None:
@@ -208,15 +234,21 @@ class Session:
                 log.debug("Secondary NN classifier skipped: %s", e)
         disease = report.disease
         # Build a full N-class probability vector centred on the evidence
-        # prediction, sharpened by agreement with the NN when it agrees.
+        # prediction, sharpened by agreement with the trained MLP + NN.
         order = np.argsort([s.class_id for s in report.scores])
         ordered = np.array([s.score for s in report.scores])[order]
         probs = ordered / (ordered.sum() + 1e-9)
+        if mlp_probs and len(mlp_probs) == len(probs):
+            mlp_arr = np.array(mlp_probs)
+            top_mlp = int(np.argmax(mlp_arr))
+            if top_mlp == report.prediction:
+                probs = 0.55 * probs + 0.45 * mlp_arr
+                probs = probs / probs.sum()
         if nn_probs and len(nn_probs) == len(probs):
             nn_arr = np.array(nn_probs)
             top_nn = int(np.argmax(nn_arr))
             if top_nn == report.prediction:
-                probs = 0.6 * probs + 0.4 * nn_arr
+                probs = 0.7 * probs + 0.3 * nn_arr
                 probs = probs / probs.sum()
         self.classification = {
             "subject": self.volume_path or "in-memory volume",
@@ -230,6 +262,7 @@ class Session:
             "evidence": report.to_dict(),
             "evidence_summary": report.evidence_summary,
             "features": report.features.to_dict(),
+            "mlp_probabilities": mlp_probs,
         }
         log.info(
             "Prediction: %s (conf %.3f)",

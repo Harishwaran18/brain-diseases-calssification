@@ -13,14 +13,14 @@ from brainframe.classification.diseases import (
 )
 
 
-def test_taxonomy_has_ten_diseases():
-    assert num_classes() == 10
-    assert len(DISEASE_TAXONOMY) == 10
+def test_taxonomy_has_twentyone_diseases():
+    assert num_classes() == 21
+    assert len(DISEASE_TAXONOMY) == 21
 
 
 def test_class_ids_are_contiguous_from_zero():
     ids = sorted(d.class_id for d in DISEASE_TAXONOMY)
-    assert ids == list(range(10))
+    assert ids == list(range(21))
 
 
 def test_names_match_expected_set():
@@ -35,6 +35,17 @@ def test_names_match_expected_set():
         "HD",
         "ALS",
         "TBI",
+        "Meningioma",
+        "Metastasis",
+        "MCA_Infarct",
+        "SDH",
+        "NPH",
+        "CJD",
+        "FTD",
+        "LBD",
+        "VaD",
+        "PSP",
+        "Abscess",
     }
     assert set(disease_names()) == expected
 

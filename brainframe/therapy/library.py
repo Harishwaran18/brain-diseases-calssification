@@ -256,6 +256,230 @@ TECHNIQUE_LIBRARY: list[TherapyTechnique] = [
             "Bullock MR. et al., Neurosurgery 2006 (TBI surgical management)",
         ],
     ),
+    TherapyTechnique(
+        id="meningioma_resection",
+        name="Microsurgical resection (Simpson grade I) + dural tail excision",
+        disease_class=10,  # Meningioma
+        mode="lesion_reversal",
+        target_mode="largest_region",
+        radius_mm=22.0,
+        dose=0.9,
+        sigma_mm=10.0,
+        rationale=(
+            "Meningiomas are benign, dural-based tumours. Complete resection with "
+            "the involved dura and bone (Simpson I) offers the best progression-free "
+            "survival. Stereotactic radiosurgery is an adjunct for residual tumour."
+        ),
+        expected_effect="60-80% reduction of the mass; Simpson I resection is often curative.",
+        references=[
+            "Simpson D. J Neurol Neurosurg Psychiatry 1957 (Simpson grading)",
+            "Goldsmith B. et al., J Neurooncol 2014 (WHO meningioma)",
+        ],
+    ),
+    TherapyTechnique(
+        id="metastasis_radiosurgery",
+        name="Stereotactic radiosurgery (SRS) + targeted systemic therapy",
+        disease_class=11,  # Metastasis
+        mode="lesion_reversal",
+        target_mode="largest_region",
+        radius_mm=18.0,
+        dose=0.78,
+        sigma_mm=9.0,
+        rationale=(
+            "Brain metastases are treated with SRS (Gamma Knife / LINAC) to each "
+            "lesion, combined with targeted systemic therapy (e.g. anti-PD-1 for "
+            "melanoma, TKI for EGFR+ lung). This shrinks the dominant lesion while "
+            "controlling satellite lesions."
+        ),
+        expected_effect="50-70% reduction of dominant metastasis; local control ~85%.",
+        references=[
+            "Soffietti R. et al., J Clin Oncol 2017 (brain metastases)",
+            "Brown PD. et al., Lancet Oncol 2017 (SRS vs WBRT)",
+        ],
+    ),
+    TherapyTechnique(
+        id="mca_reperfusion",
+        name="Mechanical thrombectomy + decompressive hemicraniectomy",
+        disease_class=12,  # MCA infarction
+        mode="lesion_reversal",
+        target_mode="largest_region",
+        radius_mm=30.0,
+        dose=0.7,
+        sigma_mm=14.0,
+        rationale=(
+            "Large MCA infarcts need reperfusion (thrombectomy within 24h of DAWN/"
+            "DEFUSE-3) and decompressive hemicraniectomy within 48h for malignant "
+            "edema. The reversal field simulates penumbra salvage and oedema control."
+        ),
+        expected_effect="40-60% penumbra salvage; reduced mass effect; limited core recovery.",
+        references=[
+            "Nogueira RG. et al., NEJM 2018 (DAWN)",
+            "Albers GW. et al., NEJM 2018 (DEFUSE-3)",
+        ],
+    ),
+    TherapyTechnique(
+        id="sdh_evacuation",
+        name="Surgical evacuation (burr-hole / mini-craniotomy)",
+        disease_class=13,  # Subdural haematoma
+        mode="lesion_reversal",
+        target_mode="largest_region",
+        radius_mm=26.0,
+        dose=0.85,
+        sigma_mm=11.0,
+        rationale=(
+            "Subdural haematomas are drained via burr-hole or mini-craniotomy. "
+            "Symptomatic collections >10 mm or with >5 mm midline shift are "
+            "evacuated. The reversal field drains the dominant collection."
+        ),
+        expected_effect="70-90% reduction of the collection; relief of mass effect.",
+        references=[
+            "Adams H. et al., World Neurosurg 2017 (chronic SDH)",
+            "Edlmann E. et al., Lancet 2022 (SDH review)",
+        ],
+    ),
+    TherapyTechnique(
+        id="nph_shunt",
+        name="Ventriculoperitoneal (VP) shunt placement",
+        disease_class=14,  # NPH
+        mode="stimulation",
+        target_mode="centroid",
+        radius_mm=14.0,
+        dose=0.75,
+        sigma_mm=8.0,
+        rationale=(
+            "Normal pressure hydrocephalus is treated by CSF diversion via a VP "
+            "shunt (or programmable valve) following a positive tap test. The "
+            "stimulation field simulates normalised CSF dynamics."
+        ),
+        expected_effect="Reduction of ventricular dilation; gait and cognition improve in ~60%.",
+        references=[
+            "Relkin N. et al., Neurosurgery 2005 (NPH guidelines)",
+            "Toma K. et al., J Neurol 2020 (NPH imaging)",
+        ],
+    ),
+    TherapyTechnique(
+        id="cjd_supportive",
+        name="Supportive care + experimental PRP-targeted therapy",
+        disease_class=15,  # CJD
+        mode="stimulation",
+        target_mode="largest_region",
+        radius_mm=16.0,
+        dose=0.3,
+        sigma_mm=10.0,
+        rationale=(
+            "Creutzfeldt-Jakob disease has no proven disease-modifying therapy. "
+            "Care is supportive (symptom control); experimental anti-prion agents "
+            "(PRP replication inhibitors) are trialled. The simulation shows only "
+            "modest slowing of progression."
+        ),
+        expected_effect="Modest symptomatic relief; disease course largely unchanged.",
+        references=[
+            "Geschwind MD. et al., J Neurol Neurosurg Psychiatry 2012 (CJD)",
+            "Zerr I. et al., Brain 2009 (CJD MRI)",
+        ],
+    ),
+    TherapyTechnique(
+        id="ftd_symptomatic",
+        name="Symptomatic therapy + behavioural support + tau-targeted trial",
+        disease_class=16,  # FTD
+        mode="stimulation",
+        target_mode="largest_region",
+        radius_mm=15.0,
+        dose=0.5,
+        sigma_mm=9.0,
+        rationale=(
+            "Frontotemporal dementia lacks disease-modifying therapy; SSRIs manage "
+            "behavioural symptoms. Tau-targeted antibodies (e.g. semorinemab) are "
+            "in trials for tau-variant FTD."
+        ),
+        expected_effect="Behavioural symptom improvement ~40-50%; structural change limited.",
+        references=[
+            "Rascovsky K. et al., Brain 2011 (bvFTD criteria)",
+            "Boxer AL. et al., Nat Rev Neurol 2013 (FTD therapy)",
+        ],
+    ),
+    TherapyTechnique(
+        id="lbd_cholinesterase",
+        name="Cholinesterase inhibitor + levodopa-sparing parkinsonism care",
+        disease_class=17,  # LBD
+        mode="stimulation",
+        target_mode="largest_region",
+        radius_mm=15.0,
+        dose=0.55,
+        sigma_mm=9.0,
+        rationale=(
+            "Lewy body dementia responds well to cholinesterase inhibitors "
+            "(donepezil, rivastigmine). Levodopa is used cautiously for "
+            "parkinsonism (avoid antipsychotics due to neuroleptic sensitivity)."
+        ),
+        expected_effect="Cognitive and hallucination improvement ~50-60%; modest.",
+        references=[
+            "McKeith IG. et al., Neurology 2017 (DLB criteria)",
+            "Donaghy PC. et al., Nat Rev Neurol 2015 (DLB)",
+        ],
+    ),
+    TherapyTechnique(
+        id="vad_risk_control",
+        name="Vascular risk-factor control + cognitive rehabilitation",
+        disease_class=18,  # Vascular dementia
+        mode="stimulation",
+        target_mode="largest_region",
+        radius_mm=16.0,
+        dose=0.6,
+        sigma_mm=10.0,
+        rationale=(
+            "Vascular dementia management targets secondary prevention: "
+            "antihypertensives, statins, antiplatelets, and glycaemic control, "
+            "plus cognitive rehabilitation. This slows progression of "
+            "small-vessel disease."
+        ),
+        expected_effect="Slowed progression; ~30-40% reduction in new infarcts.",
+        references=[
+            "Gorelick PB. et al., Stroke 2011 (VCI definitions)",
+            "Wardlaw JM. et al., Lancet Neurol 2013 (small vessel disease)",
+        ],
+    ),
+    TherapyTechnique(
+        id="psp_symptomatic",
+        name="Symptomatic therapy + gait/balance rehabilitation",
+        disease_class=19,  # PSP
+        mode="stimulation",
+        target_mode="largest_region",
+        radius_mm=12.0,
+        dose=0.35,
+        sigma_mm=8.0,
+        rationale=(
+            "Progressive supranuclear palsy has no disease-modifying therapy. "
+            "Levodopa gives limited benefit; physical therapy for gait/balance, "
+            "and botulinum toxin for eyelid apraxia, are mainstays."
+        ),
+        expected_effect="Modest gait/symptom improvement; progression continues.",
+        references=[
+            "Höglinger GU. et al., Nat Rev Dis Primers 2017 (PSP)",
+            "Litvan I. et al., Neurology 2003 (PSP criteria)",
+        ],
+    ),
+    TherapyTechnique(
+        id="abscess_drainage",
+        name="Surgical drainage + targeted antibiotic therapy",
+        disease_class=20,  # Brain abscess
+        mode="lesion_reversal",
+        target_mode="largest_region",
+        radius_mm=20.0,
+        dose=0.88,
+        sigma_mm=10.0,
+        rationale=(
+            "Brain abscesses are drained (stereotactic aspiration or excision) "
+            "and treated with 4-6 weeks of targeted IV antibiotics based on "
+            "culture. The reversal field drains the dominant collection while "
+            "antibiotics sterilise the cavity."
+        ),
+        expected_effect="70-90% resolution of the abscess; full recovery common.",
+        references=[
+            "Brouwer MC. et al., N Engl J Med 2014 (brain abscess)",
+            "Mathisen GE. et al., Infect Dis Clin North Am 2010 (abscess)",
+        ],
+    ),
 ]
 
 

@@ -6,7 +6,7 @@ evidence-based differential classifier (:mod:`~brainframe.classification.evidenc
 scores extracted lesion features against these signatures to produce a
 calibrated, transparent disease hypothesis with confidence.
 
-The taxonomy covers the major categories encountered in clinical neuroimaging:
+The taxonomy covers 20 major categories encountered in clinical neuroimaging:
 
     0  Healthy / no significant abnormality
     1  Alzheimer's disease (medial-temporal / parietal atrophy)
@@ -18,6 +18,17 @@ The taxonomy covers the major categories encountered in clinical neuroimaging:
     7  Huntington's disease (caudate / putamen atrophy)
     8  Amyotrophic lateral sclerosis (motor-cortex / corticospinal tract)
     9  Traumatic brain injury (focal contusion / diffuse axonal)
+   10  Meningioma (extra-axial dural-based mass)
+   11  Brain metastasis (multiple ring-enhancing lesions)
+   12  MCA territory infarction (large unilateral MCA stroke)
+   13  Subdural haematoma (extra-axial crescent collection)
+   14  Normal pressure hydrocephalus (ventricular enlargement)
+   15  Creutzfeldt-Jakob disease (cortical / basal-ganglia diffusion change)
+   16  Frontotemporal dementia (frontal / temporal atrophy)
+   17  Lewy body dementia (cortical / subcortical Lewy pathology)
+   18  Vascular dementia (diffuse small-vessel disease)
+   19  Progressive supranuclear palsy (midbrain atrophy)
+   20  Brain abscess (ring-enhancing encapsulated infection)
 
 Each signature is literature-informed (see ``references``). This module is pure
 data and has no side effects, so it is trivially unit-testable.
@@ -89,6 +100,10 @@ REGIONS = (
     "hippocampus",
     "insula",
     "limbic",
+    "ventricular",
+    "midbrain",
+    "extra_axial",
+    "gray_white_junction",
 )
 
 PATTERNS = ("focal", "diffuse", "symmetric", "periventricular", "ring_enhancing")
@@ -289,6 +304,226 @@ DISEASE_TAXONOMY: list[DiseaseSignature] = [
         references=[
             "Carney N. et al., Neurosurgery 2017 (TBI guidelines)",
             "Murray GD. et al., BMJ 1999 (TBI prognosis, CRASH)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=10,
+        name="Meningioma",
+        short_name="Meningioma",
+        preferred_regions=("extra_axial", "frontal", "parietal", "occipital"),
+        pattern="focal",
+        laterality="any",
+        size_mm3=(1000.0, 50000.0),
+        region_count=(1, 2),
+        icd_block="ICD-11 2A12.0 Meningioma",
+        summary=(
+            "Well-circumscribed extra-axial dural-based mass with a broad dural "
+            "tail, typically slow-growing. Often convexity or parasagittal; "
+            "may compress adjacent cortex."
+        ),
+        references=[
+            "Goldsmith B. et al., J Neurooncol 2014 (WHO meningioma)",
+            "Rogers L. et al., Neuro Oncol 2015 (meningioma management)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=11,
+        name="Brain metastasis",
+        short_name="Metastasis",
+        preferred_regions=("gray_white_junction", "frontal", "parietal", "cerebellum"),
+        pattern="ring_enhancing",
+        laterality="bilateral",
+        size_mm3=(100.0, 30000.0),
+        region_count=(2, 10),
+        icd_block="ICD-11 2A50 Secondary neoplasm",
+        summary=(
+            "Multiple well-circumscribed lesions at the grey-white junction, "
+            "often ring-enhancing with surrounding vasogenic oedema. Lung, "
+            "breast, and melanoma are common primaries."
+        ),
+        references=[
+            "Soffietti R. et al., J Clin Oncol 2017 (brain metastases)",
+            "Barnholtz-Sloan JS. et al., JCO 2014 (epidemiology)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=12,
+        name="MCA territory infarction",
+        short_name="MCA_Infarct",
+        preferred_regions=("basal_ganglia", "corona_radiata", "frontal", "parietal", "temporal"),
+        pattern="focal",
+        laterality="left",
+        size_mm3=(5000.0, 120000.0),
+        region_count=(1, 1),
+        icd_block="ICD-11 6B01 Cerebral infarction",
+        summary=(
+            "Large wedge-shaped lesion confined to the middle cerebral artery "
+            "territory, involving the basal ganglia, corona radiata and the "
+            "cortical MCA surface. Unilateral, often with mass effect."
+        ),
+        references=[
+            "Powers WJ. et al., Stroke 2019 (acute ischaemic stroke)",
+            "Adams HP. et al., Stroke 1993 (TOAST classification)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=13,
+        name="Subdural haematoma",
+        short_name="SDH",
+        preferred_regions=("extra_axial", "frontal", "parietal", "temporal"),
+        pattern="diffuse",
+        laterality="any",
+        size_mm3=(2000.0, 60000.0),
+        region_count=(1, 2),
+        icd_block="ICD-11 8D10 Nontraumatic subdural haematoma",
+        summary=(
+            "Extra-axial crescentic collection between dura and arachnoid, "
+            "conforming to the calvarium and crossing sutures. May compress "
+            "the underlying hemisphere."
+        ),
+        references=[
+            "Adams H. et al., World Neurosurg 2017 (chronic SDH)",
+            "Edlmann E. et al., Lancet 2022 (SDH review)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=14,
+        name="Normal pressure hydrocephalus",
+        short_name="NPH",
+        preferred_regions=("ventricular", "periventricular"),
+        pattern="symmetric",
+        laterality="bilateral",
+        size_mm3=(0.0, 500.0),
+        region_count=(1, 2),
+        icd_block="ICD-11 8D64 Hydrocephalus",
+        summary=(
+            "Symmetric ventricular enlargement out of proportion to sulcal "
+            "atrophy, with periventricular transependymal interstitial oedema. "
+            "The classic triad is gait, dementia, and urinary incontinence."
+        ),
+        references=[
+            "Relkin N. et al., Neurosurgery 2005 (NPH guidelines)",
+            "Toma K. et al., J Neurol 2020 (NPH imaging)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=15,
+        name="Creutzfeldt-Jakob disease",
+        short_name="CJD",
+        preferred_regions=("basal_ganglia", "thalamus", "frontal", "parietal", "occipital"),
+        pattern="symmetric",
+        laterality="bilateral",
+        size_mm3=(0.0, 1000.0),
+        region_count=(1, 6),
+        icd_block="ICD-11 8A20 Prion disease",
+        summary=(
+            "Rapidly progressive dementia with characteristic diffusion "
+            "restriction (cortical ribboning and basal-ganglia/thalamic "
+            "hyperintensity). Often bilateral and symmetric."
+        ),
+        references=[
+            "Zerr I. et al., Brain 2009 (CJD MRI)",
+            "Geschwind MD. et al., J Neurol Neurosurg Psychiatry 2012 (CJD)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=16,
+        name="Frontotemporal dementia",
+        short_name="FTD",
+        preferred_regions=("frontal", "temporal", "limbic"),
+        pattern="symmetric",
+        laterality="bilateral",
+        size_mm3=(0.0, 800.0),
+        region_count=(1, 3),
+        icd_block="ICD-11 6A82 Frontotemporal dementia",
+        summary=(
+            "Asymmetric or symmetric atrophy of the frontal and anterior "
+            "temporal lobes with relative sparing of the posterior cortex. "
+            "Behavioural and language variants are recognised."
+        ),
+        references=[
+            "Rascovsky K. et al., Brain 2011 (bvFTD criteria)",
+            "Gorno-Tempini ML. et al., Neurology 2004 (PPA variants)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=17,
+        name="Lewy body dementia",
+        short_name="LBD",
+        preferred_regions=("frontal", "parietal", "occipital", "limbic"),
+        pattern="symmetric",
+        laterality="bilateral",
+        size_mm3=(0.0, 700.0),
+        region_count=(1, 4),
+        icd_block="ICD-11 6A82 Lewy body dementia",
+        summary=(
+            "Cortical Lewy body deposition with relative hippocampal "
+            "preservation. Occipital hypometabolism on functional imaging is "
+            "a supportive feature; structural MRI is less specific."
+        ),
+        references=[
+            "McKeith IG. et al., Neurology 2017 (DLB criteria)",
+            "Donaghy PC. et al., Nat Rev Neurol 2015 (DLB)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=18,
+        name="Vascular dementia",
+        short_name="VaD",
+        preferred_regions=("basal_ganglia", "corona_radiata", "periventricular", "frontal"),
+        pattern="diffuse",
+        laterality="bilateral",
+        size_mm3=(100.0, 5000.0),
+        region_count=(3, 15),
+        icd_block="ICD-11 6B80 Vascular dementia",
+        summary=(
+            "Diffuse small-vessel disease with multiple lacunes and confluent "
+            "white-matter hyperintensities (leukoaraiosis), often bilateral "
+            "and periventricular."
+        ),
+        references=[
+            "Gorelick PB. et al., Stroke 2011 (VCI definitions)",
+            "Wardlaw JM. et al., Lancet Neurol 2013 (small vessel disease)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=19,
+        name="Progressive supranuclear palsy",
+        short_name="PSP",
+        preferred_regions=("midbrain", "basal_ganglia", "brainstem"),
+        pattern="symmetric",
+        laterality="bilateral",
+        size_mm3=(0.0, 600.0),
+        region_count=(1, 2),
+        icd_block="ICD-11 8A40.3 PSP",
+        summary=(
+            "Midbrain atrophy ('hummingbird' sign) with tegmental "
+            "degeneration. Relative frontal atrophy and a vertical-gaze "
+            "palsy distinguish it from Parkinson's disease."
+        ),
+        references=[
+            "Höglinger GU. et al., Nat Rev Dis Primers 2017 (PSP)",
+            "Litvan I. et al., Neurology 2003 (PSP criteria)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=20,
+        name="Brain abscess",
+        short_name="Abscess",
+        preferred_regions=("frontal", "temporal", "parietal", "cerebellum"),
+        pattern="ring_enhancing",
+        laterality="any",
+        size_mm3=(500.0, 30000.0),
+        region_count=(1, 3),
+        icd_block="ICD-11 1C40 Intracranial abscess",
+        summary=(
+            "Encapsulated infection with a thin, smooth, ring-enhancing "
+            "capsule and surrounding vasogenic oedema. Typically unilateral "
+            "and unilocular; often frontal or temporal."
+        ),
+        references=[
+            "Brouwer MC. et al., N Engl J Med 2014 (brain abscess)",
+            "Mathisen GE. et al., Infect Dis Clin North Am 2010 (abscess)",
         ],
     ),
 ]

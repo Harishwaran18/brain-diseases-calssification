@@ -10,7 +10,7 @@ from brainframe.therapy.recommender import TherapyRecommendation, recommend_ther
 
 def test_library_covers_every_disease_class():
     classes = {t.disease_class for t in TECHNIQUE_LIBRARY}
-    assert classes == set(range(10))
+    assert classes == set(range(21))
 
 
 def test_library_techniques_have_required_fields():

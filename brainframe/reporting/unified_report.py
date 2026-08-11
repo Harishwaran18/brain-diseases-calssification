@@ -122,11 +122,16 @@ def build_3d_figure(
     lesion_regions: list[dict] | None = None,
     simulation: dict | None = None,
     cortex_mesh: MeshData | None = None,
+    disease_name: str | None = None,
+    technique_name: str | None = None,
 ) -> Any:
     """Build an animated plotly 3D figure: multi-tissue brain + live cure frames.
 
     The lesion mesh shrinks across animation frames (medicine taking effect),
-    with a play button + slider so the cure plays live in the viewer. Meshes are
+    with a play button + slider so the cure plays live in the viewer. Each frame
+    title names the disease being treated and the curing technique being applied,
+    so the viewer always shows what is happening. When disease/technique are not
+    provided the title falls back to lesion-volume tracking only. Meshes are
     decimated to keep the self-contained HTML small and responsive. When a real
     fsaverage cortical surface is provided it is rendered with smooth shading as
     the realistic brain backdrop.
@@ -331,6 +336,13 @@ def build_3d_figure(
                 else f"Cure {(fi / (n_frames - 1)) * 100:.0f}%"
             )
         )
+        title_parts: list[str] = []
+        if disease_name:
+            title_parts.append(f"Disease: {disease_name}")
+        if technique_name:
+            title_parts.append(f"Technique: {technique_name}")
+        title_parts.append(f"{label} · lesion {_safe_float(cur_v, 0)} mm³")
+        frame_title_text = "  ·  ".join(title_parts)
         frames.append(
             go.Frame(
                 data=data,
@@ -338,7 +350,7 @@ def build_3d_figure(
                 traces=[len(base_traces)],
                 layout={
                     "title": {
-                        "text": f"{label} · lesion {_safe_float(cur_v, 0)} mm³",
+                        "text": frame_title_text,
                         "font": {"color": "#e6edf3"},
                     }
                 },
@@ -757,6 +769,13 @@ def generate_unified_report(
     three_div = ""
     if mesh_result is not None:
         try:
+            disease_name = None
+            technique_name = None
+            if classification:
+                disease_name = classification.get("disease_name")
+            if therapy:
+                # Therapy spec carries the selected technique's name, if any.
+                technique_name = therapy.get("technique_name") or therapy.get("name")
             fig3d = build_3d_figure(
                 mesh_result,
                 label_volume,
@@ -764,6 +783,8 @@ def generate_unified_report(
                 lesion_regions,
                 simulation=simulation,
                 cortex_mesh=cortex_mesh,
+                disease_name=disease_name,
+                technique_name=technique_name,
             )
             three_div = _fig_to_html_div(fig3d, "brain-3d")
         except Exception as e:  # pragma: no cover
