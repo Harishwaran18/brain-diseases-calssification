@@ -27,6 +27,25 @@ if sess.recommendation is None:
 rec = sess.recommendation
 tech = rec.technique
 
+# Show the disease this therapy targets + prediction confidence.
+clf = sess.classification or {}
+disease_name = clf.get("disease_name", f"class {rec.disease_class}")
+conf = clf.get("confidence", 0.0)
+st.markdown(
+    f"""
+    <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;
+    padding:16px;margin:8px 0 16px">
+      <div style="color:#8b949e;font-size:.8rem;text-transform:uppercase;
+      letter-spacing:.04em">Targeting diagnosis</div>
+      <div style="font-size:1.2rem;font-weight:700;color:#e6edf3;margin-top:2px">
+        {disease_name}</div>
+      <div style="color:#8b949e;font-size:.85rem;margin-top:4px">
+        Prediction confidence {conf:.0%} · disease class {rec.disease_class}</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
 st.markdown(
     f"""
     <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:24px;margin:16px 0">

@@ -74,13 +74,20 @@ def load_real_brain_volume(
     labels[wm] = LABELS["white_matter"]
     labels[csf] = LABELS["csf"]
 
-    # Plant a realistic white-matter lesion (hyper-intense blob) for therapy.
-    rng = np.random.default_rng(7)
-    Z, Y, X = vol.shape
-    cz, cy, cx = Z // 2 + rng.integers(-8, 8), Y // 2 + 6, X // 2 + rng.integers(-10, 10)
-    zz, yy, xx = np.mgrid[0:Z, 0:Y, 0:X]
-    r = 5.0
-    lesion = (zz - cz) ** 2 + (yy - cy) ** 2 + (xx - cx) ** 2 < r**2
+    # Plant a realistic periventricular white-matter lesion cluster
+    # (Dawson's-finger style) so the evidence classifier + therapy pipeline have
+    # a target. Several small bilateral plaques near the ventricular system make
+    # the demo classify as a periventricular demyelinating pattern (MS-like).
+    s0, s1, s2 = vol.shape
+    c0, c1, c2 = s0 // 2, s1 // 2 + 6, s2 // 2  # near the ventricular centre
+    a0, a1, a2 = np.mgrid[0:s0, 0:s1, 0:s2]
+    lesion = np.zeros(vol.shape, dtype=bool)
+    for hemi in (-9, 9):  # bilateral periventricular plaques
+        for dz, dy, dx in ((0, 0, 0), (3, 2, 0), (-3, -2, 1), (1, 4, -1)):
+            cz, cy, cx = c0 + hemi + dx, c1 + dy, c2 + dz
+            r = 3.5
+            blob = (a0 - cx) ** 2 + (a1 - cy) ** 2 + (a2 - cz) ** 2 < r**2
+            lesion |= blob
     labels[lesion] = LABELS["lesion"]
     vol[lesion] = np.float32(vol.max())
     log.info(

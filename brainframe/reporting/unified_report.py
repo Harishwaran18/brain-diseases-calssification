@@ -148,35 +148,57 @@ def build_3d_figure(
         else None
     )
 
-    # Real fsaverage pial cortex: render first (backmost) with smooth shading so
-    # the viewer shows genuine folded gyri/sulci, not a smooth ellipsoid.
+    # Real fsaverage pial cortex: render with smooth shading as the realistic
+    # brain backdrop. The pial surface already carries genuine folded gyri/sulci;
+    # to make the viewer look more anatomically lifelike we (a) keep more vertices
+    # so the gyral detail is preserved, (b) split the mesh at the midline and
+    # shade the two hemispheres with subtly different tissue tones so left/right
+    # are visually distinguishable, and (c) use a two-light setup (key + rim) for
+    # depth cueing.
     if cortex_mesh is not None and len(cortex_mesh.vertices) > 0 and len(cortex_mesh.faces) > 0:
-        cv, cf = _decimate_mesh(cortex_mesh.vertices, cortex_mesh.faces, target_verts=12000)
+        cv, cf = _decimate_mesh(cortex_mesh.vertices, cortex_mesh.faces, target_verts=24000)
         cv = _align_to_volume(cv, vol_pts)
-        base_traces.append(
-            go.Mesh3d(
-                x=cv[:, 0],
-                y=cv[:, 1],
-                z=cv[:, 2],
-                i=cf[:, 0],
-                j=cf[:, 1],
-                k=cf[:, 2],
-                color="#c98a4b",
-                opacity=0.92,
-                name="Cortex (fsaverage)",
-                showlegend=True,
-                flatshading=False,
-                lighting={
-                    "ambient": 0.45,
-                    "diffuse": 0.85,
-                    "specular": 0.35,
-                    "roughness": 0.55,
-                    "fresnel": 0.2,
-                },
-                lightposition={"x": 100, "y": 200, "z": 150},
-                hovertemplate="<b>real cortex</b><br>fsaverage pial surface<extra></extra>",
+        # Split at the midline (x mean) for hemisphere-tinted shading.
+        left_mask = cv[:, 0] < float(cv[:, 0].mean())
+        for hemi_mask, tint, hemi_name in (
+            (left_mask, "#c98a4b", "Left cortex"),
+            (~left_mask, "#c0793a", "Right cortex"),
+        ):
+            idx = np.where(hemi_mask)[0]
+            if len(idx) < 3:
+                continue
+            # Remap faces whose three vertices all belong to this hemisphere.
+            keep = np.isin(cf, idx).all(axis=1)
+            if not np.any(keep):
+                continue
+            sub_f = cf[keep]
+            remap = {old: new for new, old in enumerate(idx)}
+            sub_f = np.vectorize(remap.get)(sub_f)
+            sub_v = cv[idx]
+            base_traces.append(
+                go.Mesh3d(
+                    x=sub_v[:, 0],
+                    y=sub_v[:, 1],
+                    z=sub_v[:, 2],
+                    i=sub_f[:, 0],
+                    j=sub_f[:, 1],
+                    k=sub_f[:, 2],
+                    color=tint,
+                    opacity=0.95,
+                    name=hemi_name,
+                    showlegend=True,
+                    flatshading=False,
+                    lighting={
+                        "ambient": 0.42,
+                        "diffuse": 0.88,
+                        "specular": 0.45,
+                        "roughness": 0.45,
+                        "fresnel": 0.28,
+                    },
+                    lightposition={"x": 150, "y": 250, "z": 200},
+                    hovertemplate=f"<b>{hemi_name}</b><br>fsaverage pial<extra></extra>",
+                )
             )
-        )
 
     ordered = sorted(
         mesh_result.meshes,

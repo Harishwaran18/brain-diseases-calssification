@@ -47,10 +47,16 @@ class TherapyRecommendation:
 
 
 _DISEASE_NAMES = {
-    0: "no neurodegeneration",
-    1: "early-stage neurodegenerative changes",
-    2: "moderate neurodegeneration (Alzheimer's / Parkinson's spectrum)",
-    3: "advanced neurodegeneration",
+    0: "Healthy (no significant abnormality)",
+    1: "Alzheimer's disease",
+    2: "Parkinson's disease",
+    3: "Multiple sclerosis",
+    4: "Glioma / brain tumour",
+    5: "Stroke / cerebral infarct",
+    6: "Epilepsy (focal cortical / hippocampal sclerosis)",
+    7: "Huntington's disease",
+    8: "Amyotrophic lateral sclerosis",
+    9: "Traumatic brain injury",
 }
 
 
@@ -65,7 +71,8 @@ def recommend_therapy(
     Parameters
     ----------
     disease_class
-        Predicted disease class (0=healthy ... 3=advanced).
+        Predicted disease class (0=healthy ... 9=TBI), matching
+        :mod:`brainframe.classification.diseases`.
     lesion_volume_mm3
         Total detected lesion volume in cubic millimetres.
     n_regions
@@ -75,19 +82,27 @@ def recommend_therapy(
     """
     technique = default_technique(disease_class)
     # If the predicted class has no curated technique, or if the lesion burden
-    # clearly contradicts the prediction, prefer a technique matching the lesion.
-    if lesion_volume_mm3 > 5000 and disease_class < 3:
-        heavier = techniques_for_class(min(3, disease_class + 1))
-        if heavier:
-            technique = heavier[0]
+    # is heavy and a higher-dose adjacent class exists, prefer the heavier one.
+    if lesion_volume_mm3 > 5000:
+        candidates = techniques_for_class(min(9, disease_class))
+        if candidates:
+            heavier = max(candidates, key=lambda t: t.dose)
+            if heavier.dose > technique.dose:
+                technique = heavier
 
-    disease = _DISEASE_NAMES.get(disease_class, f"class {disease_class}")
-    conf_note = (
-        f" The prediction is well-supported (confidence {confidence:.0%})."
-        if confidence >= 0.5
-        else f" Note: prediction confidence is moderate ({confidence:.0%});"
-        " monitor for progression."
-    )
+    disease = _DISEASE_NAMES.get(disease_class, f"disease class {disease_class}")
+    if confidence >= 0.5:
+        conf_note = f" The prediction is well-supported (confidence {confidence:.0%})."
+    elif confidence >= 0.2:
+        conf_note = (
+            f" Note: prediction confidence is moderate ({confidence:.0%});"
+            " monitor for progression and seek clinical correlation."
+        )
+    else:
+        conf_note = (
+            f" Warning: prediction confidence is low ({confidence:.0%}); the"
+            " evidence is equivocal and clinical correlation is essential."
+        )
     if lesion_volume_mm3 > 0:
         lesion_note = (
             f" Lesion analysis found {n_regions} region(s) totalling {lesion_volume_mm3:.0f} mm³."
