@@ -33,13 +33,33 @@ simulator + compatibility score). Canonical label index in `brainframe.config.LA
 - Simulator: avoid walrus operator in boolean array expressions (precedence bug).
 
 ## Testing
-- `python -m pytest -q` — 36 tests, all CPU-only, synthetic NIfTI fixtures in
-  `tests/conftest.py`. No network, no real data.
-- `python -m ruff check brainframe tests` — must pass clean.
+- `python -m pytest -q` — 72 tests (was 36; +33 for therapy/session/app), all CPU-only,
+  synthetic NIfTI fixtures in `tests/conftest.py`. No network, no real data.
+- `python -m ruff check . && python -m ruff format --check .` — must pass clean.
 - mypy: `python -m mypy brainframe --ignore-missing-imports` (numpy stub syntax warning
   is a version quirk, not our code).
+- AppTest (streamlit.testing.v1): `page_link` is not surfaced as an element attribute in
+  streamlit 1.61; assert on `at.markdown`/`at.button` instead. `st.switch_page` raises
+  under AppTest (no multipage context) — tolerate that specific exception in tests.
 
 ## Commands
 - `python -m brainframe prepare` — create data/checkpoint dirs
 - `python -m brainframe run --input <volume.nii.gz> --output <dir>` — full pipeline
 - `python -m brainframe segment|reconstruct|evaluate|visualize` — per-stage
+
+## NeuroCure interactive platform (Streamlit app)
+- Package `neurocure_app/` (thin presentation shell) wraps the `brainframe` engine via
+  `brainframe.session.Session` (typed, idempotent step API stored in st.session_state).
+- Run: `python -m streamlit run neurocure_app/app.py --server.port 12000 --server.headless true`
+- 6-page multipage app: app.py (home) + pages/1_Upload, 2_3D_Brain, 3_Predict,
+  4_Therapy, 5_Simulate, 6_Report.
+- 3D viewer uses `st.plotly_chart` (Plotly WebGL) — NOT stpyvista (streamlit-version
+  incompatibility). `build_3d_figure` in `brainframe.reporting.unified_report` builds
+  the static+animated figure; `build_cure_frames` in `brainframe.therapy.animation`
+  produces the per-timestep lesion-shrinking frames.
+- Therapy: `brainframe/therapy/{library,recommender,animation}.py` — 4 curated
+  techniques (disease classes 0-3), deterministic recommender, plotly cure animation.
+- `Session` methods are idempotent (segment/reconstruct/predict/evaluate/recommend/
+  simulate each early-return if their result is already cached); `ingest()` clears
+  downstream state via `_clear_downstream()`.
+- `use_container_width` deprecation warnings are cosmetic (streamlit 1.61) — non-blocking.

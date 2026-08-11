@@ -171,6 +171,34 @@ tractable, self-contained counterpart of lesion-as-perturbation / whole-brain mo
 
 Output is a JSON + HTML report with before/after 3D renders and metric tables.
 
+## NeuroCure interactive platform
+
+`neurocure_app/` is a Streamlit multipage web app that wraps the `brainframe` engine
+in an end-to-end interactive workflow: upload a brain MRI → see a real in-browser 3D
+brain reconstruction → get a disease prediction → receive a recommended curing/therapy
+technique → watch a **live 3D simulation** of the cure applied to the real brain →
+download a unified report.
+
+```bash
+python -m streamlit run neurocure_app/app.py --server.port 12000 --server.headless true
+```
+
+The 6 pages are:
+
+1. **Upload** — load a NIfTI/DICOM file or the bundled demo brain (no download needed).
+2. **3D Brain** — retraining-free segmentation → tissue meshes (gray/white/CSF/lesion)
+   rendered as an interactive rotatable Plotly WebGL 3D scene.
+3. **Predict** — disease classification with confidence and probabilities.
+4. **Therapy** — lesion-region analysis + curated therapy recommendation
+   ([`brainframe.therapy`](brainframe/therapy/)) tailored to the predicted class and
+   lesion burden.
+5. **Simulate** — live 3D cure animation: the lesion mesh shrinks over time with
+   play/pause + slider, before/after volumes, and a therapy-response verdict.
+6. **Report** — downloadable unified HTML + JSON report.
+
+The app is a thin presentation shell; all AI work runs through the typed, idempotent
+[`Session`](brainframe/session.py) API, so each step is cached across page navigations.
+
 ## Documentation
 
 - [`docs/architecture.md`](docs/architecture.md) — module-by-module design.
@@ -186,24 +214,28 @@ pytest -ra
 ```
 
 Tests use synthetic NIfTI fixtures (no network, no real data, CPU-only) covering every
-stage and an end-to-end pipeline smoke test.
+stage, the end-to-end pipeline, the therapy library/recommender/animation, the `Session`
+API, and the Streamlit app shell (via `streamlit.testing.v1.AppTest`).
 
 ## Project layout
 
 ```
 brain-diseases-calssification/
-├── configs/        # YAML configs (default + per-stage)
-├── brainframe/      # main package
-│   ├── config.py    # typed config loader
-│   ├── data/        # loaders, preprocessing, datasets, samplers
+├── configs/          # YAML configs (default + per-stage)
+├── brainframe/       # main package
+│   ├── config.py     # typed config loader
+│   ├── data/         # loaders, preprocessing, datasets, samplers
 │   ├── classification/  # supervised baseline
 │   ├── segmentation/    # retraining-free SAM + TTA
 │   ├── reconstruction/  # 3D mesh + metrics
 │   ├── evaluation/      # therapy simulator + compatibility
+│   ├── therapy/         # curated technique library + recommender + animation
 │   ├── pipeline.py      # end-to-end orchestrator
+│   ├── session.py        # typed idempotent Session API for the app
 │   └── cli.py           # `brainframe` CLI
-├── tests/          # pytest suite
-└── docs/            # architecture / research alignment / reproducibility
+├── neurocure_app/    # Streamlit web platform (6-page multipage app)
+├── tests/            # pytest suite (72 tests)
+└── docs/             # architecture / research alignment / reproducibility
 ```
 
 ## License
