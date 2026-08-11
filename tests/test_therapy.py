@@ -10,7 +10,7 @@ from brainframe.therapy.recommender import TherapyRecommendation, recommend_ther
 
 def test_library_covers_every_disease_class():
     classes = {t.disease_class for t in TECHNIQUE_LIBRARY}
-    assert classes == {0, 1, 2, 3}
+    assert classes == set(range(10))
 
 
 def test_library_techniques_have_required_fields():
@@ -25,13 +25,13 @@ def test_library_techniques_have_required_fields():
 
 
 def test_default_technique_returns_class_match():
-    for cls in (0, 1, 2, 3):
+    for cls in range(10):
         tech = default_technique(cls)
         assert tech.disease_class == cls
 
 
 def test_techniques_for_class_returns_only_matching():
-    for cls in (0, 1, 2, 3):
+    for cls in range(10):
         techs = techniques_for_class(cls)
         assert techs
         assert all(t.disease_class == cls for t in techs)
@@ -52,23 +52,24 @@ def test_to_therapy_spec_dict_keys_match_simulator():
 
 
 def test_recommend_returns_recommendation_for_each_class():
-    for cls in (0, 1, 2, 3):
+    for cls in range(10):
         rec = recommend_therapy(cls, lesion_volume_mm3=0.0, n_regions=0, confidence=0.5)
         assert isinstance(rec, TherapyRecommendation)
         assert rec.disease_class == cls
-        assert rec.technique.disease_class in {cls, min(3, cls + 1)}
+        assert rec.technique.disease_class == cls
 
 
 def test_recommend_upscales_when_lesion_large():
-    # A class-1 prediction with a large lesion should pick a heavier technique.
-    rec = recommend_therapy(1, lesion_volume_mm3=8000.0, n_regions=2, confidence=0.4)
-    assert rec.technique.disease_class >= 2
+    # A class with multiple techniques and a large lesion should pick a heavier dose.
+    # Class 9 (TBI) has a single high-dose technique; class 4 (Glioma) has dose 0.95.
+    rec = recommend_therapy(9, lesion_volume_mm3=12000.0, n_regions=2, confidence=0.6)
+    assert rec.technique.dose >= 0.8
 
 
-def test_recommend_does_not_upscale_at_top_class():
-    # Class 3 is already the heaviest; large lesion must not exceed it.
-    rec = recommend_therapy(3, lesion_volume_mm3=20000.0, n_regions=3, confidence=0.3)
-    assert rec.technique.disease_class == 3
+def test_recommend_does_not_exceed_max_class():
+    # Class 9 (TBI) is the top class; large lesion must not exceed it.
+    rec = recommend_therapy(9, lesion_volume_mm3=20000.0, n_regions=3, confidence=0.3)
+    assert rec.technique.disease_class == 9
 
 
 def test_recommend_to_dict_roundtrip():

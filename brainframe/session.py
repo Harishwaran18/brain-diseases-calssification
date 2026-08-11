@@ -169,26 +169,73 @@ class Session:
 
     # -- Step 4: predict ---------------------------------------------------
     def predict(self) -> Session:
-        """Run disease classification on the ingested volume."""
+        """Run disease classification on the ingested volume.
+
+        Primary engine: the evidence-based differential classifier
+        (:mod:`~brainframe.classification.evidence`), which scores the
+        segmentation's lesion features against the 10-disease taxonomy and
+        produces a calibrated, transparent confidence. A lightweight 3D CNN
+        is run as a *secondary* signal when available and blended into the
+        reported probabilities.
+        """
         if self.classification is not None:
             return self
-        if self.volume_path is None:
-            # Save the in-memory volume to a temp NIfTI for the predictor.
+        if self.evaluation is None:
+            self.evaluate()
+        assert self.evaluation is not None
+        from brainframe.classification.evidence import classify
+
+        lesion = self.evaluation["lesion"]
+        lesion_dict = lesion.to_dict() if hasattr(lesion, "to_dict") else lesion
+        report = classify(lesion_dict, self.label_volume, self.spacing)
+        # Materialise the in-memory volume to a temp NIfTI for the secondary NN.
+        nn_probs: list[float] = []
+        if self.volume_path is None and self.volume is not None:
             import nibabel as nib
 
             tmp = self.output_dir / "session_volume.nii.gz"
             affine = np.diag(list(self.spacing) + [1.0])
             nib.save(nib.Nifti1Image(self.volume.astype(np.float32), affine), str(tmp))
             self.volume_path = str(tmp)
-        from brainframe.pipeline import run_classification
+        if self.volume_path is not None:
+            try:
+                from brainframe.pipeline import run_classification
 
-        self.classification = run_classification(self.volume_path, self.config, device=self.device)
-        if self.classification is not None:
-            log.info(
-                "Prediction: class %s (conf %.3f)",
-                self.classification["prediction"],
-                max(self.classification.get("probabilities", [0])),
-            )
+                nn_out = run_classification(self.volume_path, self.config, device=self.device)
+                if nn_out is not None:
+                    nn_probs = nn_out.get("probabilities", [])
+            except Exception as e:  # pragma: no cover - optional secondary
+                log.debug("Secondary NN classifier skipped: %s", e)
+        disease = report.disease
+        # Build a full N-class probability vector centred on the evidence
+        # prediction, sharpened by agreement with the NN when it agrees.
+        order = np.argsort([s.class_id for s in report.scores])
+        ordered = np.array([s.score for s in report.scores])[order]
+        probs = ordered / (ordered.sum() + 1e-9)
+        if nn_probs and len(nn_probs) == len(probs):
+            nn_arr = np.array(nn_probs)
+            top_nn = int(np.argmax(nn_arr))
+            if top_nn == report.prediction:
+                probs = 0.6 * probs + 0.4 * nn_arr
+                probs = probs / probs.sum()
+        self.classification = {
+            "subject": self.volume_path or "in-memory volume",
+            "prediction": report.prediction,
+            "disease_name": disease.name,
+            "disease_short_name": disease.short_name,
+            "confidence": report.confidence,
+            "probabilities": probs.tolist(),
+            "num_classes": len(probs),
+            "differential": report.differential,
+            "evidence": report.to_dict(),
+            "evidence_summary": report.evidence_summary,
+            "features": report.features.to_dict(),
+        }
+        log.info(
+            "Prediction: %s (conf %.3f)",
+            disease.short_name,
+            report.confidence,
+        )
         return self
 
     # -- Step 5: evaluate + recommend --------------------------------------
@@ -225,8 +272,7 @@ class Session:
         confidence = 0.0
         if self.classification:
             disease_class = self.classification.get("prediction", 0)
-            probs = self.classification.get("probabilities", [])
-            confidence = max(probs) if probs else 0.0
+            confidence = self.classification.get("confidence", 0.0)
         self.recommendation = recommend_therapy(
             disease_class=disease_class,
             lesion_volume_mm3=lesion.get("total_lesion_volume_mm3", 0.0),

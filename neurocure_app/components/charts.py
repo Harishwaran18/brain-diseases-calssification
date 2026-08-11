@@ -15,17 +15,70 @@ _THEME = {
 
 def disease_chart(probabilities: list[float], prediction: int) -> go.Figure:
     """Bar chart of per-class disease probabilities."""
+    from brainframe.classification.diseases import disease_names
+
+    names = disease_names()[: len(probabilities)]
     colors = ["#3fb950" if i != prediction else "#f85149" for i in range(len(probabilities))]
     fig = go.Figure(
         go.Bar(
-            x=[f"Class {i}" for i in range(len(probabilities))],
+            x=names,
             y=probabilities,
             marker_color=colors,
-            text=[f"{p:.3f}" for p in probabilities],
+            text=[f"{p:.1%}" for p in probabilities],
             textposition="outside",
         )
     )
-    fig.update_layout(yaxis={"range": [0, 1], "title": "Probability"}, **_THEME, height=320)
+    fig.update_layout(yaxis={"range": [0, 1], "title": "Probability"}, **_THEME, height=360)
+    fig.update_xaxes(tickangle=-30)
+    return fig
+
+
+def evidence_chart(scores: list[dict]) -> go.Figure:
+    """Grouped bar chart of the per-axis evidence scores for the top diseases."""
+    top = scores[:5]
+    names = [s["short_name"] for s in top]
+    axes = ("region", "pattern", "laterality", "size")
+    colors = {"region": "#3fb950", "pattern": "#d29922", "laterality": "#a371f7", "size": "#f85149"}
+    fig = go.Figure()
+    for ax in axes:
+        fig.add_trace(
+            go.Bar(
+                name=ax.capitalize(),
+                x=names,
+                y=[s[f"{ax}_score"] for s in top],
+                marker_color=colors[ax],
+            )
+        )
+    fig.update_layout(
+        barmode="group",
+        yaxis={"range": [0, 1], "title": "Evidence agreement"},
+        legend={"orientation": "h", "y": -0.25},
+        **_THEME,
+        height=360,
+    )
+    fig.update_xaxes(tickangle=-30)
+    return fig
+
+
+def differential_chart(differential: list[dict]) -> go.Figure:
+    """Horizontal bar chart of the top-3 differential diagnosis probabilities."""
+    names = [d["short_name"] for d in differential]
+    probs = [d["probability"] for d in differential]
+    fig = go.Figure(
+        go.Bar(
+            x=probs,
+            y=names,
+            orientation="h",
+            marker_color=["#f85149", "#d29922", "#3fb950"][: len(names)],
+            text=[f"{p:.1%}" for p in probs],
+            textposition="outside",
+        )
+    )
+    fig.update_layout(
+        xaxis={"range": [0, 1], "title": "Relative probability"},
+        **_THEME,
+        height=260,
+    )
     return fig
 
 

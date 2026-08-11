@@ -46,7 +46,9 @@ def build_cortex() -> None:
     all_v, all_f = [], []
     for hemi in ("left", "right"):
         coords, faces = nib.load(fs[f"pial_{hemi}"]).agg_data()
-        v_out, f_out = fast_simplification.simplify(coords, faces, target_reduction=0.96)
+        # Keep ~16k vertices per hemisphere (≈32k total) so the viewer preserves
+        # genuine gyral/sulcal detail rather than over-decimating.
+        v_out, f_out = fast_simplification.simplify(coords, faces, target_reduction=0.90)
         all_v.append(v_out)
         all_f.append(np.asarray(f_out))
     offset = 0
