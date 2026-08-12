@@ -415,7 +415,7 @@ if(phases.length && tlbar){
 let playing=false, frame=0, lastT=0;
 const playBtn=document.getElementById('play'), resetBtn=document.getElementById('reset');
 const mv=document.getElementById('mv'), pv=document.getElementById('pv');
-const mc=document.getElementById('mechanism'), ds=document.getElementById('desc');
+const mc=document.getElementById('mc'), ds=document.getElementById('ds');
 
 function frameInfo(f){
   if(TIMELINE && TIMELINE.frames && TIMELINE.frames[f]) return TIMELINE.frames[f];
