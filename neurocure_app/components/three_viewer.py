@@ -68,6 +68,41 @@ def _shrink_frames(
     return frames
 
 
+def _phase_lesion_frames(
+    lesion_verts: np.ndarray, centroid: np.ndarray, scales: list[float]
+) -> list[list[float]]:
+    """Per-frame lesion positions driven by the cure phase scales.
+
+    ``scales`` are per-frame lesion_scale values (1.0 = full, 0.0 = gone) from
+    the :class:`~brainframe.therapy.cure_phases.CureTimeline`.
+    """
+    frames: list[list[float]] = []
+    for scale in scales:
+        frac = 1.0 - scale  # how far toward centroid
+        scaled = lesion_verts * (1.0 - frac) + centroid * frac
+        frames.append(scaled.astype(np.float32).flatten().tolist())
+    return frames
+
+
+def _regen_frames(
+    lesion_verts: np.ndarray, centroid: np.ndarray, regen_intensities: list[float]
+) -> list[list[float]]:
+    """Per-frame regeneration-mesh positions.
+
+    The regeneration mesh starts at the lesion cavity and grows outward as
+    healthy tissue regrows. ``regen_intensities`` are 0..1 per frame.
+    """
+    frames: list[list[float]] = []
+    for ri in regen_intensities:
+        # Regen mesh = lesion shape scaled down by (1 - regen), centred on centroid.
+        # As regen -> 1 the mesh is small (cavity filled); as regen -> 0 it equals
+        # the original lesion size. We invert so high regen = small filled cavity.
+        scale = max(0.02, 1.0 - ri)
+        scaled = (lesion_verts - centroid) * scale + centroid
+        frames.append(scaled.astype(np.float32).flatten().tolist())
+    return frames
+
+
 _THREE_TEMPLATE = r"""
 <!DOCTYPE html>
 <html lang="en">
@@ -76,17 +111,27 @@ _THREE_TEMPLATE = r"""
 <style>
   html,body{margin:0;padding:0;height:100%;background:#0a0e14;overflow:hidden;font-family:system-ui,sans-serif}
   #app{position:relative;width:100%;height:100%}
-  #overlay{position:absolute;top:14px;left:14px;color:#e6edf3;background:rgba(13,17,23,.78);
-           border:1px solid #30363d;border-radius:10px;padding:12px 16px;max-width:60%;
+  #overlay{position:absolute;top:14px;left:14px;color:#e6edf3;background:rgba(13,17,23,.82);
+           border:1px solid #30363d;border-radius:10px;padding:14px 18px;max-width:62%;
            font-size:13px;line-height:1.55;pointer-events:none;z-index:5}
   #overlay .disease{color:#3aa6e6;font-weight:700;font-size:15px}
   #overlay .technique{color:#3fb950;font-weight:600}
-  #overlay .meta{color:#8b949e;font-size:12px;margin-top:6px}
+  #overlay .phase{color:#f0a040;font-weight:700;font-size:14px;margin-top:8px}
+  #overlay .mechanism{color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+  #overlay .desc{color:#c9d1d9;font-size:12px;margin-top:6px;font-style:italic}
+  #overlay .meta{color:#8b949e;font-size:12px;margin-top:8px}
   #hud{position:absolute;top:14px;right:14px;color:#8b949e;font-size:11px;text-align:right;z-index:5}
   #err{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#ff7b72;font-size:14px;display:none;z-index:6}
-  #ctrl{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:5}
+  #ctrl{position:absolute;bottom:60px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:5}
   #ctrl button{background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:8px;padding:8px 18px;font-size:13px;cursor:pointer}
   #ctrl button:hover{border-color:#3aa6e6}
+  #timeline{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);width:78%;z-index:5}
+  #timeline .tlbar{height:10px;background:#161b22;border:1px solid #30363d;border-radius:6px;overflow:hidden;display:flex}
+  #timeline .tlseg{height:100%;opacity:.55;transition:opacity .2s}
+  #timeline .tlseg.active{opacity:1}
+  #timeline .tlhead{display:flex;justify-content:space-between;color:#8b949e;font-size:10px;margin-bottom:3px}
+  #timeline .tllabels{display:flex;color:#8b949e;font-size:9px;margin-top:3px;gap:2px}
+  #timeline .tllabels span{flex:1;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -94,11 +139,19 @@ _THREE_TEMPLATE = r"""
   <div id="overlay">
     <div class="disease" id="dv"></div>
     <div class="technique" id="tv"></div>
+    <div class="phase" id="pv"></div>
+    <div class="mechanism" id="mc"></div>
+    <div class="desc" id="ds"></div>
     <div class="meta" id="mv"></div>
   </div>
   <div id="hud">drag: rotate &middot; scroll: zoom &middot; right-drag: pan</div>
   <div id="err"></div>
   <div id="ctrl"><button id="play">▶ Play cure</button><button id="reset">↺ Reset view</button></div>
+  <div id="timeline">
+    <div class="tlhead"><span id="tlleft">Before</span><span id="tlright">Cured</span></div>
+    <div class="tlbar" id="tlbar"></div>
+    <div class="tllabels" id="tllabels"></div>
+  </div>
 </div>
 <script type="importmap">
 { "imports": {
@@ -115,6 +168,7 @@ const DISEASE = __DISEASE__;
 const TECHNIQUE = __TECHNIQUE__;
 const BEFORE_V = __BEFORE_V__;
 const AFTER_V = __AFTER_V__;
+const TIMELINE = DATA.timeline || null;
 const NFRAMES = DATA.lesionFrames ? DATA.lesionFrames.length : 0;
 const HAS_CURE = NFRAMES > 1 && BEFORE_V > 0;
 
@@ -166,18 +220,63 @@ try {
   if(DATA.cortexRight) rightMesh = makeMesh(DATA.cortexRight, 0xc0793a, 1.0, 0.55, 0.05, false);
   // Tissue meshes.
   if(DATA.tissues) for(const t of DATA.tissues) makeMesh(t.mesh, t.color, t.opacity, 0.7, 0.0, t.flat);
-  // Lesion (animated if cure frames present).
-  let lesionMesh=null, lesionGeom=null, lesionBasePositions=null;
+
+  // ---- Lesion mesh (phase-coloured, shrinks per cure phase) ----
+  let lesionMesh=null, lesionGeom=null;
   if(DATA.lesion && DATA.lesion.positions && DATA.lesion.positions.length){
     lesionGeom = new THREE.BufferGeometry();
     lesionGeom.setAttribute('position', new THREE.Float32BufferAttribute(DATA.lesion.positions, 3));
     if(DATA.lesion.normals) lesionGeom.setAttribute('normal', new THREE.Float32BufferAttribute(DATA.lesion.normals, 3));
     else lesionGeom.computeVertexNormals();
     lesionGeom.setIndex(DATA.lesion.indices);
-    const lmat = new THREE.MeshStandardMaterial({color:0xff2b4a, metalness:0.1, roughness:0.4, flatShading:true, transparent:true, opacity:0.95, emissive:0x550011, emissiveIntensity:0.3});
+    const lmat = new THREE.MeshStandardMaterial({color:0xff2b4a, metalness:0.1, roughness:0.4, flatShading:true, transparent:true, opacity:0.95, emissive:0x550011, emissiveIntensity:0.35});
     lesionMesh = new THREE.Mesh(lesionGeom, lmat);
     scene.add(lesionMesh);
-    lesionBasePositions = new THREE.Float32BufferAttribute(DATA.lesion.positions, 3).array;
+  }
+
+  // ---- Regeneration mesh (healthy tissue regrowing into the cavity) ----
+  let regenMesh=null, regenGeom=null;
+  if(DATA.regenFrames && DATA.regenFrames.length && DATA.lesion && DATA.lesion.indices){
+    regenGeom = new THREE.BufferGeometry();
+    regenGeom.setAttribute('position', new THREE.Float32BufferAttribute(DATA.regenFrames[0], 3));
+    regenGeom.setIndex(DATA.lesion.indices);
+    regenGeom.computeVertexNormals();
+    const rmat = new THREE.MeshStandardMaterial({color:0x3fb950, metalness:0.05, roughness:0.5, flatShading:false, transparent:true, opacity:0.0, emissive:0x0a3318, emissiveIntensity:0.4});
+    regenMesh = new THREE.Mesh(regenGeom, rmat);
+    scene.add(regenMesh);
+  }
+
+  // ---- Oedema halo (inflammation sphere around the lesion) ----
+  let edemaMesh=null;
+  if(DATA.lesion && DATA.lesion.positions && DATA.lesion.positions.length){
+    // Compute lesion bounding sphere for the halo.
+    let mn=[1e9,1e9,1e9], mx=[-1e9,-1e9,-1e9];
+    const p=DATA.lesion.positions;
+    for(let i=0;i<p.length;i+=3){for(let j=0;j<3;j++){if(p[i+j]<mn[j])mn[j]=p[i+j];if(p[i+j]>mx[j])mx[j]=p[i+j];}}
+    const cx=(mn[0]+mx[0])/2, cy=(mn[1]+mx[1])/2, cz=(mn[2]+mx[2])/2;
+    let r=0; for(let i=0;i<p.length;i+=3){const d=Math.hypot(p[i]-cx,p[i+1]-cy,p[i+2]-cz); if(d>r)r=d;}
+    r = r*1.35 || 12;
+    const egeom = new THREE.SphereGeometry(r, 24, 16);
+    egeom.translate(cx, cy, cz);
+    const emat = new THREE.MeshBasicMaterial({color:0xff6a3a, transparent:true, opacity:0.0, side: THREE.BackSide, depthWrite:false});
+    edemaMesh = new THREE.Mesh(egeom, emat);
+    scene.add(edemaMesh);
+  }
+
+  // ---- Neuroprotective field (translucent shield around penumbra) ----
+  let protectMesh=null;
+  if(DATA.lesion && DATA.lesion.positions && DATA.lesion.positions.length){
+    let mn=[1e9,1e9,1e9], mx=[-1e9,-1e9,-1e9];
+    const p=DATA.lesion.positions;
+    for(let i=0;i<p.length;i+=3){for(let j=0;j<3;j++){if(p[i+j]<mn[j])mn[j]=p[i+j];if(p[i+j]>mx[j])mx[j]=p[i+j];}}
+    const cx=(mn[0]+mx[0])/2, cy=(mn[1]+mx[1])/2, cz=(mn[2]+mx[2])/2;
+    let r=0; for(let i=0;i<p.length;i+=3){const d=Math.hypot(p[i]-cx,p[i+1]-cy,p[i+2]-cz); if(d>r)r=d;}
+    r = r*1.6 || 16;
+    const pgeom = new THREE.SphereGeometry(r, 24, 16);
+    pgeom.translate(cx, cy, cz);
+    const pmat = new THREE.MeshBasicMaterial({color:0x9a7ad0, transparent:true, opacity:0.0, side: THREE.BackSide, depthWrite:false, wireframe:true});
+    protectMesh = new THREE.Mesh(pgeom, pmat);
+    scene.add(protectMesh);
   }
 
   // Frame the camera on the whole scene.
@@ -190,30 +289,95 @@ try {
   animate();
   window.addEventListener('resize', ()=>{ const W=app.clientWidth, H=app.clientHeight; camera.aspect=W/H; camera.updateProjectionMatrix(); renderer.setSize(W,H); });
 
-  // ---- Cure animation ----
+  // ---- Build the phase timeline bar ----
+  const tlbar = document.getElementById('tlbar');
+  const tllabels = document.getElementById('tllabels');
+  let phases = (TIMELINE && TIMELINE.phases) ? TIMELINE.phases : [];
+  if(phases.length && tlbar){
+    phases.forEach((ph, i) => {
+      const seg = document.createElement('div');
+      seg.className = 'tlseg';
+      seg.style.flex = ph.weight || 1;
+      seg.style.background = ph.color || '#3aa6e6';
+      seg.dataset.idx = i;
+      tlbar.appendChild(seg);
+      const lbl = document.createElement('span');
+      lbl.textContent = (ph.name||'').split(' ')[0];
+      tllabels.appendChild(lbl);
+    });
+  }
+
+  // ---- Cure animation (multi-phase) ----
   let playing=false, frame=0, lastT=0;
   const playBtn=document.getElementById('play'), resetBtn=document.getElementById('reset');
-  const mv=document.getElementById('mv');
-  function curV(f){ if(!HAS_CURE) return BEFORE_V; const frac=f/(NFRAMES-1); return BEFORE_V*(1-frac); }
-  function updateMeta(f){
-    if(!HAS_CURE){ mv.textContent='Lesion volume: '+BEFORE_V.toFixed(0)+' mm³'; return; }
-    const frac=f/(NFRAMES-1); const label = f===0 ? 'Before medicine' : (f===NFRAMES-1 && AFTER_V<BEFORE_V ? 'Cured' : 'Cure '+(frac*100).toFixed(0)+'%');
-    mv.textContent = label+' · lesion '+curV(f).toFixed(0)+' mm³';
+  const mv=document.getElementById('mv'), pv=document.getElementById('pv');
+  const mc=document.getElementById('mechanism'), ds=document.getElementById('desc');
+
+  function frameInfo(f){
+    if(TIMELINE && TIMELINE.frames && TIMELINE.frames[f]) return TIMELINE.frames[f];
+    return null;
   }
+  function curV(f){
+    const fi = frameInfo(f);
+    if(fi && fi.lesion_volume!=null) return fi.lesion_volume;
+    if(!HAS_CURE) return BEFORE_V;
+    return BEFORE_V*(1 - f/(NFRAMES-1));
+  }
+
   function applyFrame(f){
+    // Lesion mesh positions.
     if(lesionGeom && DATA.lesionFrames && DATA.lesionFrames[f]){
       const pos=lesionGeom.getAttribute('position'); const arr=DATA.lesionFrames[f];
       for(let i=0;i<arr.length;i++) pos.array[i]=arr[i]; pos.needsUpdate=true;
       lesionGeom.computeVertexNormals();
     }
-    updateMeta(f);
+    const fi = frameInfo(f);
+    // Phase-coloured lesion.
+    if(lesionMesh && fi && fi.phase_color){
+      lesionMesh.material.color.set(fi.phase_color);
+    }
+    // Regeneration mesh grows + fades in.
+    if(regenGeom && DATA.regenFrames && DATA.regenFrames[f]){
+      const pos=regenGeom.getAttribute('position'); const arr=DATA.regenFrames[f];
+      for(let i=0;i<arr.length;i++) pos.array[i]=arr[i]; pos.needsUpdate=true;
+      regenGeom.computeVertexNormals();
+    }
+    if(regenMesh && fi){
+      regenMesh.material.opacity = (fi.regen||0) * 0.75;
+    }
+    // Oedema halo fades with inflammation.
+    if(edemaMesh && fi){
+      edemaMesh.material.opacity = (fi.edema||0) * 0.32;
+    }
+    // Neuroprotective field.
+    if(protectMesh && fi){
+      protectMesh.material.opacity = (fi.protect||0) * 0.25;
+    }
+    // Overlay text.
+    if(fi){
+      pv.textContent = fi.phase_name || '';
+      pv.style.color = fi.phase_color || '#f0a040';
+      mc.textContent = (fi.mechanism||'').replace(/_/g,' ');
+      ds.textContent = fi.description || '';
+      const lv = fi.lesion_volume!=null ? fi.lesion_volume : curV(f);
+      const pct = (fi.progress!=null ? fi.progress*100 : (f/(NFRAMES-1))*100);
+      mv.textContent = 'lesion ' + lv.toFixed(0) + ' mm³ · cure ' + pct.toFixed(0) + '%';
+    } else {
+      mv.textContent = 'Lesion volume: ' + curV(f).toFixed(0) + ' mm³';
+    }
+    // Highlight active timeline segment.
+    if(fi){
+      const segs = tlbar.querySelectorAll('.tlseg');
+      segs.forEach((s, i) => s.classList.toggle('active', i === fi.phase_index));
+    }
   }
-  updateMeta(0);
+  applyFrame(0);
+
   playBtn.onclick=()=>{ if(!HAS_CURE){ playBtn.textContent='No cure data'; return; } playing=!playing; playBtn.textContent=playing?'⏸ Pause':'▶ Play cure'; if(playing){frame=0; lastT=performance.now();} };
   resetBtn.onclick=()=>{ frame=0; playing=false; playBtn.textContent='▶ Play cure'; applyFrame(0);
     if(!box.isEmpty()){ const c=box.getCenter(new THREE.Vector3()); controls.target.copy(c); }
   };
-  function loop(t){ requestAnimationFrame(loop); if(playing){ if(t-lastT>450){ lastT=t; frame++; if(frame>=NFRAMES){ frame=0; } applyFrame(frame); } } }
+  function loop(t){ requestAnimationFrame(loop); if(playing){ if(t-lastT>380){ lastT=t; frame++; if(frame>=NFRAMES){ frame=NFRAMES-1; playing=false; playBtn.textContent='▶ Replay'; } applyFrame(frame); } } }
   requestAnimationFrame(loop);
 } catch(e){ fail(e.message); console.error(e); }
 </script>
@@ -231,6 +395,7 @@ def render_three_brain(
     before_volume: float = 0.0,
     after_volume: float = 0.0,
     *,
+    cure_timeline: dict | None = None,
     height: int = 640,
     decimate_cortex_to: int = 20000,
 ) -> None:
@@ -248,6 +413,12 @@ def render_three_brain(
         Shown on the on-canvas overlay during the cure animation.
     before_volume / after_volume
         Lesion volume before/after the cure; drives the animation.
+    cure_timeline
+        Optional :class:`~brainframe.therapy.cure_phases.CureTimeline` dict
+        (``to_dict()`` output) describing the multi-phase biological cure
+        cascade. When provided, the lesion is coloured per phase, a
+        regeneration mesh grows into the cavity, an oedema halo fades, and a
+        neuroprotective shield appears — all driven by the phase parameters.
     """
     data: dict[str, Any] = {}
 
@@ -305,6 +476,7 @@ def render_three_brain(
     # Lesion mesh + cure animation frames.
     lesion_json: dict | None = None
     lesion_frames: list | None = None
+    regen_frames: list | None = None
     if lesion_mesh is not None and len(lesion_mesh.vertices) > 0:
         lverts = np.asarray(lesion_mesh.vertices, dtype=np.float32).copy()
         lverts = _recenter(lverts)
@@ -317,13 +489,23 @@ def render_three_brain(
             "indices": lfaces.flatten().tolist(),
             "normals": lnorms.astype(np.float32).flatten().tolist(),
         }
-        if before_volume > after_volume and before_volume > 0:
-            centroid = lverts.mean(axis=0)
+        centroid = lverts.mean(axis=0)
+        has_cure = before_volume > after_volume and before_volume > 0
+        if cure_timeline is not None and cure_timeline.get("frames"):
+            tl_frames = cure_timeline["frames"]
+            scales = [f["lesion_scale"] for f in tl_frames]
+            regen = [f["regen"] for f in tl_frames]
+            lesion_frames = _phase_lesion_frames(lverts, centroid, scales)
+            regen_frames = _regen_frames(lverts, centroid, regen)
+            data["timeline"] = cure_timeline
+        elif has_cure:
             lesion_frames = _shrink_frames(lverts, centroid, n_frames=9)
     if lesion_json:
         data["lesion"] = lesion_json
     if lesion_frames:
         data["lesionFrames"] = lesion_frames
+    if regen_frames:
+        data["regenFrames"] = regen_frames
 
     html = (
         _THREE_TEMPLATE.replace("__DATA__", json.dumps(data))

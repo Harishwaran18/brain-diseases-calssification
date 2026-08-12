@@ -49,6 +49,7 @@ class Session:
     classification: dict | None = None
     recommendation: Any | None = None
     simulation_override: dict | None = None
+    cure_timeline: dict | None = None
 
     def __post_init__(self) -> None:
         self.output_dir = Path(self.output_dir)
@@ -359,11 +360,25 @@ class Session:
             "therapy": tech.to_therapy_spec_dict(),
         }
         self.simulation_override = sim.to_dict()
+        # Build the medically-accurate multi-phase cure timeline.
+        disease_class = (
+            self.classification["prediction"] if self.classification else 0
+        )
+        from brainframe.therapy.cure_phases import build_cure_timeline
+
+        timeline = build_cure_timeline(
+            disease_class,
+            sim.before_lesion_volume_mm3,
+            sim.after_lesion_volume_mm3,
+            n_frames=36,
+        )
+        self.cure_timeline = timeline.to_dict()
         log.info(
-            "Simulated recommended therapy '%s': before=%.1f after=%.1f mm³",
+            "Simulated recommended therapy '%s': before=%.1f after=%.1f mm³ (%d-phase cure)",
             tech.name,
             sim.before_lesion_volume_mm3,
             sim.after_lesion_volume_mm3,
+            len(timeline.phases),
         )
         return self
 
@@ -459,6 +474,7 @@ class Session:
         self.classification = None
         self.recommendation = None
         self.simulation_override = None
+        self.cure_timeline = None
 
     def reset(self) -> Session:
         """Clear all session state."""

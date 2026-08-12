@@ -57,9 +57,12 @@ charts.verdict_banner(recovery, risk)
 
 st.subheader("LIVE 3D cure animation (WebGL)")
 st.caption(
-    "Genuine WebGL (Three.js) animation: press ▶ Play cure to watch the lesion "
-    "mesh shrink toward its centroid as the therapy takes effect. The overlay "
-    "names the disease being treated and the curing technique being applied."
+    "Genuine WebGL (Three.js) multi-phase biological cure on the real brain. "
+    "Press ▶ Play cure to watch the medically-accurate cascade unfold: "
+    "therapeutic targeting → anti-inflammatory → lesion reversal → "
+    "neuroprotection → remyelination/regeneration → functional recovery. "
+    "The lesion changes colour per phase, healthy tissue regrows into the "
+    "cavity, the inflammation halo fades, and a neuroprotective shield forms."
 )
 recon = sess.reconstruction
 if recon is not None:
@@ -75,9 +78,31 @@ if recon is not None:
         technique_name=technique_name,
         before_volume=float(before),
         after_volume=float(after),
+        cure_timeline=sess.cure_timeline,
     )
 else:
     st.warning("Reconstruction not available; visit the 3D Brain page first.")
+
+# Show the multi-phase cure breakdown.
+if sess.cure_timeline and sess.cure_timeline.get("phases"):
+    st.subheader("Cure cascade phases")
+    st.caption("The biological phases the therapy passes through on the real brain.")
+    phases = sess.cure_timeline["phases"]
+    for i, ph in enumerate(phases, 1):
+        with st.container(border=True):
+            pc1, pc2 = st.columns([1, 12])
+            pc1.markdown(
+                f"<div style='width:28px;height:28px;border-radius:50%;"
+                f"background:{ph['color']};margin-top:4px'></div>",
+                unsafe_allow_html=True,
+            )
+            pc2.markdown(
+                f"**{i}. {ph['name']}** &nbsp; "
+                f"<span style='color:#8b949e;font-size:.8em'>"
+                f"{ph['mechanism'].replace('_', ' ')}</span>\n\n"
+                f"<span style='color:#c9d1d9'>{ph['description']}</span>",
+                unsafe_allow_html=True,
+            )
 
 st.subheader("Lesion volume over time")
 charts.render(charts.cure_timeline_chart(before, after))
