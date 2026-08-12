@@ -146,3 +146,8 @@ simulator + compatibility score). Canonical label index in `brainframe.config.LA
   `window.__nc3d` (mesh-ref bag with `.ok` flag). Verify the cure-UI script logic with a
   node DOM-mock (`/tmp/mock_test.js`) since `browser_get_state` reads the iframe's static
   srcdoc, NOT the JS-mutated live DOM (so the Play button text won't reflect toggles).
+  IMPORTANT: the mock must use STRICT element ids (only the real HTML ids exist, unknown
+  getElementById returns null) — a permissive mock masks id/class-name mismatches that
+  throw TypeErrors mid-`applyFrame`. The overlay element ids are `dv,tv,pv,mc,ds,mv`
+  (NOT the class names `disease/technique/phase/mechanism/desc/meta`). To read the live
+  iframe DOM, use `browser_get_content` (extracts JS-mutated HTML) — NOT `browser_get_state`.
