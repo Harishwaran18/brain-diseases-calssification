@@ -137,3 +137,12 @@ simulator + compatibility score). Canonical label index in `brainframe.config.LA
 - `use_container_width` deprecation warnings are cosmetic (streamlit 1.61) ŌĆö non-blocking.
 - Headless test browser has no WebGL, so Plotly 3D shows a placeholder there; verify
   server-side via `fig.data` trace names + the streamlit log "Real cortex mesh" line.
+- **3D viewer = Three.js WebGL** (`neurocure_app/components/three_viewer.py`): renders the
+  real fsaverage cortex via Three.js r169 (CDN importmap) in a Streamlit
+  `components.html` iframe. The cure animation (timeline bar segments, disease/technique
+  overlay text, Play/Pause/Replay button, 2D-canvas fallback) lives in a SEPARATE plain
+  `<script>` (not the `type="module"`) so it works even when the Three.js CDN import
+  fails inside the sandboxed iframe. Data is bridged via `window.__NC_DATA__` /
+  `window.__nc3d` (mesh-ref bag with `.ok` flag). Verify the cure-UI script logic with a
+  node DOM-mock (`/tmp/mock_test.js`) since `browser_get_state` reads the iframe's static
+  srcdoc, NOT the JS-mutated live DOM (so the Play button text won't reflect toggles).

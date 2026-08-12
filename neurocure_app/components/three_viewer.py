@@ -121,7 +121,7 @@ _THREE_TEMPLATE = r"""
   #overlay .desc{color:#c9d1d9;font-size:12px;margin-top:6px;font-style:italic}
   #overlay .meta{color:#8b949e;font-size:12px;margin-top:8px}
   #hud{position:absolute;top:14px;right:14px;color:#8b949e;font-size:11px;text-align:right;z-index:5}
-  #err{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#ff7b72;font-size:14px;display:none;z-index:6}
+  #err{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#8b949e;font-size:12px;display:none;z-index:6;text-align:center;background:rgba(13,17,23,.85);border:1px solid #30363d;border-radius:8px;padding:10px 16px;max-width:70%}
   #ctrl{position:absolute;bottom:60px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:5}
   #ctrl button{background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:8px;padding:8px 18px;font-size:13px;cursor:pointer}
   #ctrl button:hover{border-color:#3aa6e6}
@@ -136,6 +136,7 @@ _THREE_TEMPLATE = r"""
 </head>
 <body>
 <div id="app">
+  <canvas id="fallback" style="position:absolute;inset:0;width:100%;height:100%;z-index:1;display:none"></canvas>
   <div id="overlay">
     <div class="disease" id="dv"></div>
     <div class="technique" id="tv"></div>
@@ -159,25 +160,43 @@ _THREE_TEMPLATE = r"""
   "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
 }}
 </script>
+<script>
+// Bootstrap: expose cure data on `window` as plain JSON so (a) the Three.js
+// module below and (b) the cure-UI plain script after it can both read it
+// without re-parsing. This runs synchronously before the deferred module.
+window.__NC_DATA__ = __DATA__;
+window.__NC_DISEASE__ = __DISEASE__;
+window.__NC_TECHNIQUE__ = __TECHNIQUE__;
+window.__NC_BEFORE_V__ = __BEFORE_V__;
+window.__NC_AFTER_V__ = __AFTER_V__;
+// Mesh-ref bag populated by the Three.js module (null until then). The cure-UI
+// script reads it defensively so it works even if the module never loads.
+window.__nc3d = { lesionMesh:null, lesionGeom:null, regenMesh:null, regenGeom:null, edemaMesh:null, protectMesh:null, ok:false };
+</script>
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-const DATA = __DATA__;
-const DISEASE = __DISEASE__;
-const TECHNIQUE = __TECHNIQUE__;
-const BEFORE_V = __BEFORE_V__;
-const AFTER_V = __AFTER_V__;
-const TIMELINE = DATA.timeline || null;
-const NFRAMES = DATA.lesionFrames ? DATA.lesionFrames.length : 0;
-const HAS_CURE = NFRAMES > 1 && BEFORE_V > 0;
-
-document.getElementById('dv').textContent = DISEASE ? 'Disease: ' + DISEASE : '';
-document.getElementById('tv').textContent = TECHNIQUE ? 'Technique: ' + TECHNIQUE : '';
+// Cure data is exposed on `window` by a preceding plain <script> so this
+// module AND the cure UI script below can both read it without duplicating
+// the JSON. The cure UI runs in a plain (non-module) script so it still
+// works if this Three.js module fails to load (e.g. CDN blocked in a
+// sandboxed iframe).
+const DATA = window.__NC_DATA__;
+const DISEASE = window.__NC_DISEASE__;
+const TECHNIQUE = window.__NC_TECHNIQUE__;
+const BEFORE_V = window.__NC_BEFORE_V__;
+const AFTER_V = window.__NC_AFTER_V__;
+const TIMELINE = (DATA && DATA.timeline) || null;
 
 const app = document.getElementById('app');
 const err = document.getElementById('err');
 function fail(msg){ err.style.display='block'; err.textContent='3D viewer error: '+msg; }
+
+// Mesh refs live on window.__nc3d (initialised by the bootstrap script) so the
+// plain cure-UI script can update them when WebGL succeeds; they stay null
+// when WebGL is unavailable and the cure script gracefully skips 3D updates.
+function showFallback(){ window.__ncShowFallback && window.__ncShowFallback(); }
 
 try {
   const scene = new THREE.Scene();
@@ -222,32 +241,33 @@ try {
   if(DATA.tissues) for(const t of DATA.tissues) makeMesh(t.mesh, t.color, t.opacity, 0.7, 0.0, t.flat);
 
   // ---- Lesion mesh (phase-coloured, shrinks per cure phase) ----
-  let lesionMesh=null, lesionGeom=null;
+  const RG = window.__nc3d;
+  RG.lesionMesh=null; RG.lesionGeom=null;
   if(DATA.lesion && DATA.lesion.positions && DATA.lesion.positions.length){
-    lesionGeom = new THREE.BufferGeometry();
-    lesionGeom.setAttribute('position', new THREE.Float32BufferAttribute(DATA.lesion.positions, 3));
-    if(DATA.lesion.normals) lesionGeom.setAttribute('normal', new THREE.Float32BufferAttribute(DATA.lesion.normals, 3));
-    else lesionGeom.computeVertexNormals();
-    lesionGeom.setIndex(DATA.lesion.indices);
+    RG.lesionGeom = new THREE.BufferGeometry();
+    RG.lesionGeom.setAttribute('position', new THREE.Float32BufferAttribute(DATA.lesion.positions, 3));
+    if(DATA.lesion.normals) RG.lesionGeom.setAttribute('normal', new THREE.Float32BufferAttribute(DATA.lesion.normals, 3));
+    else RG.lesionGeom.computeVertexNormals();
+    RG.lesionGeom.setIndex(DATA.lesion.indices);
     const lmat = new THREE.MeshStandardMaterial({color:0xff2b4a, metalness:0.1, roughness:0.4, flatShading:true, transparent:true, opacity:0.95, emissive:0x550011, emissiveIntensity:0.35});
-    lesionMesh = new THREE.Mesh(lesionGeom, lmat);
-    scene.add(lesionMesh);
+    RG.lesionMesh = new THREE.Mesh(RG.lesionGeom, lmat);
+    scene.add(RG.lesionMesh);
   }
 
   // ---- Regeneration mesh (healthy tissue regrowing into the cavity) ----
-  let regenMesh=null, regenGeom=null;
+  RG.regenMesh=null; RG.regenGeom=null;
   if(DATA.regenFrames && DATA.regenFrames.length && DATA.lesion && DATA.lesion.indices){
-    regenGeom = new THREE.BufferGeometry();
-    regenGeom.setAttribute('position', new THREE.Float32BufferAttribute(DATA.regenFrames[0], 3));
-    regenGeom.setIndex(DATA.lesion.indices);
-    regenGeom.computeVertexNormals();
+    RG.regenGeom = new THREE.BufferGeometry();
+    RG.regenGeom.setAttribute('position', new THREE.Float32BufferAttribute(DATA.regenFrames[0], 3));
+    RG.regenGeom.setIndex(DATA.lesion.indices);
+    RG.regenGeom.computeVertexNormals();
     const rmat = new THREE.MeshStandardMaterial({color:0x3fb950, metalness:0.05, roughness:0.5, flatShading:false, transparent:true, opacity:0.0, emissive:0x0a3318, emissiveIntensity:0.4});
-    regenMesh = new THREE.Mesh(regenGeom, rmat);
-    scene.add(regenMesh);
+    RG.regenMesh = new THREE.Mesh(RG.regenGeom, rmat);
+    scene.add(RG.regenMesh);
   }
 
   // ---- Oedema halo (inflammation sphere around the lesion) ----
-  let edemaMesh=null;
+  RG.edemaMesh=null;
   if(DATA.lesion && DATA.lesion.positions && DATA.lesion.positions.length){
     // Compute lesion bounding sphere for the halo.
     let mn=[1e9,1e9,1e9], mx=[-1e9,-1e9,-1e9];
@@ -259,12 +279,12 @@ try {
     const egeom = new THREE.SphereGeometry(r, 24, 16);
     egeom.translate(cx, cy, cz);
     const emat = new THREE.MeshBasicMaterial({color:0xff6a3a, transparent:true, opacity:0.0, side: THREE.BackSide, depthWrite:false});
-    edemaMesh = new THREE.Mesh(egeom, emat);
-    scene.add(edemaMesh);
+    RG.edemaMesh = new THREE.Mesh(egeom, emat);
+    scene.add(RG.edemaMesh);
   }
 
   // ---- Neuroprotective field (translucent shield around penumbra) ----
-  let protectMesh=null;
+  RG.protectMesh=null;
   if(DATA.lesion && DATA.lesion.positions && DATA.lesion.positions.length){
     let mn=[1e9,1e9,1e9], mx=[-1e9,-1e9,-1e9];
     const p=DATA.lesion.positions;
@@ -275,8 +295,8 @@ try {
     const pgeom = new THREE.SphereGeometry(r, 24, 16);
     pgeom.translate(cx, cy, cz);
     const pmat = new THREE.MeshBasicMaterial({color:0x9a7ad0, transparent:true, opacity:0.0, side: THREE.BackSide, depthWrite:false, wireframe:true});
-    protectMesh = new THREE.Mesh(pgeom, pmat);
-    scene.add(protectMesh);
+    RG.protectMesh = new THREE.Mesh(pgeom, pmat);
+    scene.add(RG.protectMesh);
   }
 
   // Frame the camera on the whole scene.
@@ -288,98 +308,175 @@ try {
   function animate(){ requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
   animate();
   window.addEventListener('resize', ()=>{ const W=app.clientWidth, H=app.clientHeight; camera.aspect=W/H; camera.updateProjectionMatrix(); renderer.setSize(W,H); });
+  // WebGL init succeeded: tell the cure-UI script it can drive the 3D meshes.
+  window.__nc3d.ok = true;
 
-  // ---- Build the phase timeline bar ----
-  const tlbar = document.getElementById('tlbar');
-  const tllabels = document.getElementById('tllabels');
-  let phases = (TIMELINE && TIMELINE.phases) ? TIMELINE.phases : [];
-  if(phases.length && tlbar){
-    phases.forEach((ph, i) => {
-      const seg = document.createElement('div');
-      seg.className = 'tlseg';
-      seg.style.flex = ph.weight || 1;
-      seg.style.background = ph.color || '#3aa6e6';
-      seg.dataset.idx = i;
-      tlbar.appendChild(seg);
-      const lbl = document.createElement('span');
-      lbl.textContent = (ph.name||'').split(' ')[0];
-      tllabels.appendChild(lbl);
-    });
-  }
+} catch(e){ fail('3D viewer unavailable — showing 2D cure timeline. (' + e.message + ')'); console.error('3D viewer:', e); showFallback(); }
+</script>
+<script>
+// ---- Cure animation UI (plain script: runs even if the Three.js module ----
+// failed to load, so Play cure / timeline / overlay always work).
+(function(){
+const DATA = window.__NC_DATA__;
+const DISEASE = window.__NC_DISEASE__;
+const TECHNIQUE = window.__NC_TECHNIQUE__;
+const BEFORE_V = window.__NC_BEFORE_V__;
+const AFTER_V = window.__NC_AFTER_V__;
+const TIMELINE = (DATA && DATA.timeline) || null;
+const NFRAMES = (DATA && DATA.lesionFrames && DATA.lesionFrames.length)
+  ? DATA.lesionFrames.length
+  : ((TIMELINE && TIMELINE.frames && TIMELINE.frames.length) ? TIMELINE.frames.length : 0);
+const HAS_CURE = NFRAMES > 1 && BEFORE_V > 0;
 
-  // ---- Cure animation (multi-phase) ----
-  let playing=false, frame=0, lastT=0;
-  const playBtn=document.getElementById('play'), resetBtn=document.getElementById('reset');
-  const mv=document.getElementById('mv'), pv=document.getElementById('pv');
-  const mc=document.getElementById('mechanism'), ds=document.getElementById('desc');
+document.getElementById('dv').textContent = DISEASE ? 'Disease: ' + DISEASE : '';
+document.getElementById('tv').textContent = TECHNIQUE ? 'Technique: ' + TECHNIQUE : '';
 
-  function frameInfo(f){
-    if(TIMELINE && TIMELINE.frames && TIMELINE.frames[f]) return TIMELINE.frames[f];
-    return null;
-  }
-  function curV(f){
-    const fi = frameInfo(f);
-    if(fi && fi.lesion_volume!=null) return fi.lesion_volume;
-    if(!HAS_CURE) return BEFORE_V;
-    return BEFORE_V*(1 - f/(NFRAMES-1));
-  }
-
-  function applyFrame(f){
-    // Lesion mesh positions.
-    if(lesionGeom && DATA.lesionFrames && DATA.lesionFrames[f]){
-      const pos=lesionGeom.getAttribute('position'); const arr=DATA.lesionFrames[f];
-      for(let i=0;i<arr.length;i++) pos.array[i]=arr[i]; pos.needsUpdate=true;
-      lesionGeom.computeVertexNormals();
-    }
-    const fi = frameInfo(f);
-    // Phase-coloured lesion.
-    if(lesionMesh && fi && fi.phase_color){
-      lesionMesh.material.color.set(fi.phase_color);
-    }
-    // Regeneration mesh grows + fades in.
-    if(regenGeom && DATA.regenFrames && DATA.regenFrames[f]){
-      const pos=regenGeom.getAttribute('position'); const arr=DATA.regenFrames[f];
-      for(let i=0;i<arr.length;i++) pos.array[i]=arr[i]; pos.needsUpdate=true;
-      regenGeom.computeVertexNormals();
-    }
-    if(regenMesh && fi){
-      regenMesh.material.opacity = (fi.regen||0) * 0.75;
-    }
-    // Oedema halo fades with inflammation.
-    if(edemaMesh && fi){
-      edemaMesh.material.opacity = (fi.edema||0) * 0.32;
-    }
-    // Neuroprotective field.
-    if(protectMesh && fi){
-      protectMesh.material.opacity = (fi.protect||0) * 0.25;
-    }
-    // Overlay text.
-    if(fi){
-      pv.textContent = fi.phase_name || '';
-      pv.style.color = fi.phase_color || '#f0a040';
-      mc.textContent = (fi.mechanism||'').replace(/_/g,' ');
-      ds.textContent = fi.description || '';
-      const lv = fi.lesion_volume!=null ? fi.lesion_volume : curV(f);
-      const pct = (fi.progress!=null ? fi.progress*100 : (f/(NFRAMES-1))*100);
-      mv.textContent = 'lesion ' + lv.toFixed(0) + ' mm³ · cure ' + pct.toFixed(0) + '%';
-    } else {
-      mv.textContent = 'Lesion volume: ' + curV(f).toFixed(0) + ' mm³';
-    }
-    // Highlight active timeline segment.
-    if(fi){
-      const segs = tlbar.querySelectorAll('.tlseg');
-      segs.forEach((s, i) => s.classList.toggle('active', i === fi.phase_index));
+// 2D canvas fallback (shown when WebGL is unavailable).
+let fbCanvas=null, fbCtx=null, fbReady=false;
+window.__ncShowFallback = function(){
+  fbCanvas = document.getElementById('fallback');
+  if(!fbCanvas) return;
+  fbCanvas.style.display='block';
+  const dpr=Math.min(window.devicePixelRatio||1, 2);
+  fbCanvas.width=(fbCanvas.clientWidth||800)*dpr;
+  fbCanvas.height=(fbCanvas.clientHeight||620)*dpr;
+  fbCtx = fbCanvas.getContext('2d');
+  if(fbCtx) fbCtx.scale(dpr, dpr);
+  fbReady = !!fbCtx;
+};
+function showFallback(){ window.__ncShowFallback && window.__ncShowFallback(); }
+function drawFallback(f){
+  if(!fbReady || !fbCtx) return;
+  const W=fbCanvas.clientWidth||800, H=fbCanvas.clientHeight||620;
+  fbCtx.clearRect(0,0,W,H);
+  const cx=W*0.5, cy=H*0.48, R=Math.min(W,H)*0.30;
+  fbCtx.save();
+  fbCtx.fillStyle='#0a0e14'; fbCtx.fillRect(0,0,W,H);
+  for(let h=-1;h<=1;h+=2){
+    fbCtx.beginPath();
+    fbCtx.fillStyle='#3a2a18';
+    fbCtx.ellipse(cx+h*R*0.55, cy, R*0.95, R*1.05, h*0.12, 0, Math.PI*2);
+    fbCtx.fill();
+    fbCtx.strokeStyle='#5a3e22'; fbCtx.lineWidth=2;
+    fbCtx.stroke();
+    for(let i=0;i<6;i++){
+      fbCtx.beginPath(); fbCtx.strokeStyle='rgba(90,62,34,0.5)'; fbCtx.lineWidth=1.5;
+      const a=i*Math.PI/6 + (h>0?0.1:-0.1);
+      fbCtx.moveTo(cx+h*R*0.55+Math.cos(a)*R*0.2, cy+Math.sin(a)*R*0.2);
+      fbCtx.quadraticCurveTo(cx+h*R*0.55+Math.cos(a)*R*0.6, cy+Math.sin(a)*R*0.6, cx+h*R*0.55+Math.cos(a)*R*0.9, cy+Math.sin(a)*R*0.9);
+      fbCtx.stroke();
     }
   }
-  applyFrame(0);
+  const fi = frameInfo(f);
+  const ls = fi ? (fi.lesion_scale!=null?fi.lesion_scale:1) : 1;
+  const ed = fi ? (fi.edema||0) : 1;
+  const rg = fi ? (fi.regen||0) : 0;
+  const pr = fi ? (fi.protect||0) : 0;
+  const phaseColor = fi ? (fi.phase_color||'#ff2b4a') : '#ff2b4a';
+  const lx=cx-R*0.3, ly=cy-R*0.1;
+  if(ed>0.02){
+    fbCtx.beginPath(); fbCtx.fillStyle='rgba(255,106,58,'+(ed*0.32)+')';
+    fbCtx.arc(lx, ly, R*0.22*1.5, 0, Math.PI*2); fbCtx.fill();
+  }
+  if(pr>0.05){
+    fbCtx.beginPath(); fbCtx.strokeStyle='rgba(154,122,208,'+(pr*0.6)+')'; fbCtx.lineWidth=1.5; fbCtx.setLineDash([4,4]);
+    fbCtx.arc(lx, ly, R*0.22*1.8, 0, Math.PI*2); fbCtx.stroke(); fbCtx.setLineDash([]);
+  }
+  if(ls>0.02){
+    fbCtx.beginPath(); fbCtx.fillStyle=phaseColor;
+    fbCtx.globalAlpha=0.9;
+    fbCtx.arc(lx, ly, Math.max(2, R*0.22*Math.max(0.15,ls)), 0, Math.PI*2); fbCtx.fill();
+    fbCtx.globalAlpha=1;
+  }
+  if(rg>0.03){
+    fbCtx.beginPath(); fbCtx.fillStyle='rgba(63,185,80,'+(rg*0.8)+')';
+    fbCtx.arc(lx, ly, Math.max(2, R*0.22*rg), 0, Math.PI*2); fbCtx.fill();
+  }
+  fbCtx.restore();
+}
 
-  playBtn.onclick=()=>{ if(!HAS_CURE){ playBtn.textContent='No cure data'; return; } playing=!playing; playBtn.textContent=playing?'⏸ Pause':'▶ Play cure'; if(playing){frame=0; lastT=performance.now();} };
-  resetBtn.onclick=()=>{ frame=0; playing=false; playBtn.textContent='▶ Play cure'; applyFrame(0);
-    if(!box.isEmpty()){ const c=box.getCenter(new THREE.Vector3()); controls.target.copy(c); }
-  };
-  function loop(t){ requestAnimationFrame(loop); if(playing){ if(t-lastT>380){ lastT=t; frame++; if(frame>=NFRAMES){ frame=NFRAMES-1; playing=false; playBtn.textContent='▶ Replay'; } applyFrame(frame); } } }
-  requestAnimationFrame(loop);
-} catch(e){ fail(e.message); console.error(e); }
+const tlbar = document.getElementById('tlbar');
+const tllabels = document.getElementById('tllabels');
+let phases = (TIMELINE && TIMELINE.phases) ? TIMELINE.phases : [];
+if(phases.length && tlbar){
+  phases.forEach((ph, i) => {
+    const seg = document.createElement('div');
+    seg.className = 'tlseg';
+    seg.style.flex = ph.weight || 1;
+    seg.style.background = ph.color || '#3aa6e6';
+    seg.dataset.idx = i;
+    tlbar.appendChild(seg);
+    const lbl = document.createElement('span');
+    lbl.textContent = (ph.name||'').split(' ')[0];
+    tllabels.appendChild(lbl);
+  });
+}
+
+let playing=false, frame=0, lastT=0;
+const playBtn=document.getElementById('play'), resetBtn=document.getElementById('reset');
+const mv=document.getElementById('mv'), pv=document.getElementById('pv');
+const mc=document.getElementById('mechanism'), ds=document.getElementById('desc');
+
+function frameInfo(f){
+  if(TIMELINE && TIMELINE.frames && TIMELINE.frames[f]) return TIMELINE.frames[f];
+  return null;
+}
+function curV(f){
+  const fi = frameInfo(f);
+  if(fi && fi.lesion_volume!=null) return fi.lesion_volume;
+  if(!HAS_CURE) return BEFORE_V;
+  return BEFORE_V*(1 - f/(NFRAMES-1));
+}
+
+function applyFrame(f){
+  // 3D mesh updates only when the WebGL module exposed them.
+  const RG = window.__nc3d;
+  if(RG && RG.lesionGeom && DATA.lesionFrames && DATA.lesionFrames[f]){
+    const pos=RG.lesionGeom.getAttribute('position'); const arr=DATA.lesionFrames[f];
+    for(let i=0;i<arr.length;i++) pos.array[i]=arr[i]; pos.needsUpdate=true;
+    RG.lesionGeom.computeVertexNormals();
+  }
+  const fi = frameInfo(f);
+  if(RG && RG.lesionMesh && fi && fi.phase_color){
+    RG.lesionMesh.material.color.set(fi.phase_color);
+  }
+  if(RG && RG.regenGeom && DATA.regenFrames && DATA.regenFrames[f]){
+    const pos=RG.regenGeom.getAttribute('position'); const arr=DATA.regenFrames[f];
+    for(let i=0;i<arr.length;i++) pos.array[i]=arr[i]; pos.needsUpdate=true;
+    RG.regenGeom.computeVertexNormals();
+  }
+  if(RG && RG.regenMesh && fi) RG.regenMesh.material.opacity = (fi.regen||0) * 0.75;
+  if(RG && RG.edemaMesh && fi) RG.edemaMesh.material.opacity = (fi.edema||0) * 0.32;
+  if(RG && RG.protectMesh && fi) RG.protectMesh.material.opacity = (fi.protect||0) * 0.25;
+  if(fi){
+    pv.textContent = fi.phase_name || '';
+    pv.style.color = fi.phase_color || '#f0a040';
+    mc.textContent = (fi.mechanism||'').replace(/_/g,' ');
+    ds.textContent = fi.description || '';
+    const lv = fi.lesion_volume!=null ? fi.lesion_volume : curV(f);
+    const pct = (fi.progress!=null ? fi.progress*100 : (f/(NFRAMES-1))*100);
+    mv.textContent = 'lesion ' + lv.toFixed(0) + ' mm³ · cure ' + pct.toFixed(0) + '%';
+  } else {
+    mv.textContent = 'Lesion volume: ' + curV(f).toFixed(0) + ' mm³';
+  }
+  if(fi){
+    const segs = tlbar.querySelectorAll('.tlseg');
+    segs.forEach((s, i) => s.classList.toggle('active', i === fi.phase_index));
+  }
+  drawFallback(f);
+}
+applyFrame(0);
+
+playBtn.onclick=()=>{ if(!HAS_CURE){ playBtn.textContent='No cure data'; return; } playing=!playing; playBtn.textContent=playing?'⏸ Pause':'▶ Play cure'; if(playing){frame=0; lastT=performance.now();} };
+resetBtn.onclick=()=>{ frame=0; playing=false; playBtn.textContent='▶ Play cure'; applyFrame(0); };
+function loop(t){ requestAnimationFrame(loop);
+  // Show the 2D fallback once it's clear the Three.js module didn't init WebGL
+  // (the deferred module has run by the first rAF tick; if ok is still false,
+  // WebGL is unavailable, so draw the schematic cure on the fallback canvas).
+  if(!fbReady && window.__nc3d && !window.__nc3d.ok){ showFallback(); if(fbReady) applyFrame(frame); }
+  if(playing){ if(t-lastT>380){ lastT=t; frame++; if(frame>=NFRAMES){ frame=NFRAMES-1; playing=false; playBtn.textContent='▶ Replay'; } applyFrame(frame); } } }
+requestAnimationFrame(loop);
+})();
 </script>
 </body>
 </html>
@@ -506,6 +603,10 @@ def render_three_brain(
         data["lesionFrames"] = lesion_frames
     if regen_frames:
         data["regenFrames"] = regen_frames
+    # Always attach the cure timeline (even without a lesion mesh) so the
+    # 2D fallback + overlay can drive the multi-phase animation.
+    if cure_timeline is not None:
+        data["timeline"] = cure_timeline
 
     html = (
         _THREE_TEMPLATE.replace("__DATA__", json.dumps(data))
