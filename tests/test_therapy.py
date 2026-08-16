@@ -10,7 +10,7 @@ from brainframe.therapy.recommender import TherapyRecommendation, recommend_ther
 
 def test_library_covers_every_disease_class():
     classes = {t.disease_class for t in TECHNIQUE_LIBRARY}
-    assert classes == set(range(21))
+    assert classes == set(range(36))
 
 
 def test_library_techniques_have_required_fields():
@@ -25,13 +25,13 @@ def test_library_techniques_have_required_fields():
 
 
 def test_default_technique_returns_class_match():
-    for cls in range(10):
+    for cls in range(36):
         tech = default_technique(cls)
         assert tech.disease_class == cls
 
 
 def test_techniques_for_class_returns_only_matching():
-    for cls in range(10):
+    for cls in range(36):
         techs = techniques_for_class(cls)
         assert techs
         assert all(t.disease_class == cls for t in techs)
@@ -52,7 +52,7 @@ def test_to_therapy_spec_dict_keys_match_simulator():
 
 
 def test_recommend_returns_recommendation_for_each_class():
-    for cls in range(10):
+    for cls in range(36):
         rec = recommend_therapy(cls, lesion_volume_mm3=0.0, n_regions=0, confidence=0.5)
         assert isinstance(rec, TherapyRecommendation)
         assert rec.disease_class == cls

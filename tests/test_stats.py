@@ -161,10 +161,10 @@ def test_evaluate_classifier_returns_full_report():
 
 def test_evaluate_trained_mlp_runs_and_has_sensible_metrics():
     rep = evaluate_trained_mlp(n_per_class=60, seed=42, alpha=0.05)
-    assert rep.n_classes == 21
+    assert rep.n_classes == 36
     assert rep.n_samples > 0
-    # A trained MLP on signature data should beat random chance (>1/21≈0.048).
-    assert rep.confusion.accuracy > 0.20
+    # A trained MLP on signature data should beat random chance (>1/36≈0.028).
+    assert rep.confusion.accuracy > 0.15
     assert len(rep.f_test.f_statistic) > 0
     # The most discriminative feature should be significant.
     assert any(rep.f_test.significant)

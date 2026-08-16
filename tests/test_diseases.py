@@ -1,4 +1,4 @@
-"""Tests for the 10-disease taxonomy."""
+"""Tests for the disease taxonomy."""
 
 from __future__ import annotations
 
@@ -13,14 +13,14 @@ from brainframe.classification.diseases import (
 )
 
 
-def test_taxonomy_has_twentyone_diseases():
-    assert num_classes() == 21
-    assert len(DISEASE_TAXONOMY) == 21
+def test_taxonomy_has_thirtysix_diseases():
+    assert num_classes() == 36
+    assert len(DISEASE_TAXONOMY) == 36
 
 
 def test_class_ids_are_contiguous_from_zero():
     ids = sorted(d.class_id for d in DISEASE_TAXONOMY)
-    assert ids == list(range(21))
+    assert ids == list(range(36))
 
 
 def test_names_match_expected_set():
@@ -46,6 +46,21 @@ def test_names_match_expected_set():
         "VaD",
         "PSP",
         "Abscess",
+        "CBD",
+        "MSA",
+        "CADASIL",
+        "SAH",
+        "EDH",
+        "AVM",
+        "Cavernoma",
+        "Arachnoid",
+        "Colloid",
+        "Pituitary",
+        "Schwannoma",
+        "PML",
+        "CPM",
+        "RadNecrosis",
+        "Wernicke",
     }
     assert set(disease_names()) == expected
 

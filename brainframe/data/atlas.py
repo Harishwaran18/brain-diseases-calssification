@@ -51,6 +51,19 @@ _DEEP_BOXES = {
     "cerebellum": (0.30, 0.70, 0.05, 0.40, 0.04, 0.22),
     # ventricular system: a thin central band used to detect periventricular lesions.
     "periventricular": (0.36, 0.64, 0.38, 0.78, 0.44, 0.74),
+    # midbrain: below thalamus, above brainstem, central.
+    "midbrain": (0.42, 0.58, 0.40, 0.55, 0.22, 0.40),
+    # corpus callosum: midline, central-Y, superior-Z band (narrow to avoid
+    # overlap with motor cortex at z>0.74 and periventricular at z<0.58).
+    "corpus_callosum": (0.46, 0.54, 0.42, 0.62, 0.58, 0.72),
+    # internal capsule: lateral to thalamus, between BG and external structures.
+    "internal_capsule": (0.38, 0.42, 0.50, 0.65, 0.48, 0.64),
+    # cerebellopontine angle: lateral-inferior-posterior (CPA cistern).
+    "cerebellopontine_angle": (0.28, 0.38, 0.20, 0.40, 0.10, 0.28),
+    # pituitary fossa (sella): central-anterior-inferior.
+    "pituitary_fossa": (0.44, 0.56, 0.60, 0.68, 0.24, 0.34),
+    # pineal region: central-posterior-superior.
+    "pineal": (0.46, 0.54, 0.32, 0.42, 0.52, 0.62),
 }
 
 
@@ -105,13 +118,20 @@ def region_at(voxel_xyz: tuple[int, int, int], shape_xyz: tuple[int, int, int]) 
     fz = (z + 0.5) / nz
     # Specific deep structures first (small boxes) — a voxel in the striatum
     # should be labelled "basal_ganglia" not "frontal".
-    for name in ("brainstem", "cerebellum", "thalamus", "basal_ganglia"):
+    for name in (
+        "brainstem", "cerebellum", "thalamus", "basal_ganglia",
+        "midbrain", "pituitary_fossa", "pineal", "cerebellopontine_angle",
+        "internal_capsule",
+    ):
         if _in_box(fx, fy, fz, _DEEP_BOXES[name]):
             return name
-    # Periventricular white matter: near the ventricles but not in a specific
-    # deep nucleus — checked before lobes so Dawson-finger / PV plaques map here.
+    # Periventricular white matter: checked before corpus_callosum so
+    # Dawson-finger / PV plaques map here, not to the corpus callosum.
     if _in_box(fx, fy, fz, _DEEP_BOXES["periventricular"]):
         return "periventricular"
+    # Corpus callosum: midline superior band, checked after periventricular.
+    if _in_box(fx, fy, fz, _DEEP_BOXES["corpus_callosum"]):
+        return "corpus_callosum"
     return _lobe(fx, fy, fz)
 
 

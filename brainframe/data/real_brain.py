@@ -144,3 +144,64 @@ def _compute_normals(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
 def has_real_brain() -> bool:
     """Whether the bundled real-brain assets are available."""
     return _has_assets() and (_ASSET_DIR / "fsaverage_pial.npz").exists()
+
+
+# Colour + opacity for each deep structure overlay in the 3D viewer.
+_DEEP_NUCLEI_STYLE = {
+    "thalamus_left":      (0xE8A040, 0.55),
+    "thalamus_right":     (0xE8A040, 0.55),
+    "caudate_left":       (0xC064E8, 0.55),
+    "caudate_right":      (0xC064E8, 0.55),
+    "putamen_left":       (0x6496E8, 0.55),
+    "putamen_right":      (0x6496E8, 0.55),
+    "pallidum_left":      (0xE86496, 0.55),
+    "pallidum_right":     (0xE86496, 0.55),
+    "ventricle_left":     (0x40C0E8, 0.35),
+    "ventricle_right":    (0x40C0E8, 0.35),
+    "hippocampus_left":   (0x6BC97B, 0.60),
+    "hippocampus_right":  (0x6BC97B, 0.60),
+    "amygdala_left":      (0xE8C064, 0.60),
+    "amygdala_right":     (0xE8C064, 0.60),
+    "brainstem":          (0xA0886E, 0.50),
+}
+
+
+def load_deep_nuclei() -> list[MeshData]:
+    """Load the deep-brain-nuclei meshes (thalamus, BG, ventricles, etc.).
+
+    Returns a list of :class:`MeshData` in MNI-mm coordinates, ready to overlay
+    on the fsaverage cortex in the 3D viewer. Returns an empty list if the
+    asset is missing (graceful degradation).
+    """
+    path = _ASSET_DIR / "deep_nuclei.npz"
+    if not path.exists():
+        log.warning("deep_nuclei.npz not found; deep-nuclei overlay disabled.")
+        return []
+    data = np.load(path)
+    meshes: list[MeshData] = []
+    for name in _DEEP_NUCLEI_STYLE:
+        vkey, fkey = f"{name}_v", f"{name}_f"
+        if vkey not in data:
+            continue
+        verts = np.asarray(data[vkey], dtype=np.float32)
+        faces = np.asarray(data[fkey], dtype=np.int32)
+        if len(verts) < 3:
+            continue
+        normals = _compute_normals(verts, faces)
+        meshes.append(
+            MeshData(
+                label=name,
+                label_idx=0,
+                vertices=verts,
+                faces=faces,
+                normals=normals,
+                spacing=(1.0, 1.0, 1.0),
+            )
+        )
+    log.info("Loaded %d deep-nuclei meshes", len(meshes))
+    return meshes
+
+
+def deep_nuclei_style(name: str) -> tuple[int, float]:
+    """Return ``(color_hex, opacity)`` for a deep-nucleus structure name."""
+    return _DEEP_NUCLEI_STYLE.get(name, (0xAAAAAA, 0.5))

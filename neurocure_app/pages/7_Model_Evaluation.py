@@ -29,7 +29,7 @@ st.set_page_config(page_title="Model Evaluation · NeuroCure", layout="wide")
 st.title("📊 Statistical Model Evaluation")
 st.caption(
     "A comprehensive, statistically rigorous characterisation of the trained "
-    "21-disease classifier on a held-out signature-derived evaluation set: "
+    "36-disease classifier on a held-out signature-derived evaluation set: "
     "confusion matrix, F-test (ANOVA), chi-square, ROC, precision-recall, "
     "calibration, and top-K accuracy."
 )
@@ -83,23 +83,26 @@ has_proba = roc is not None
 with st.expander("🧠 Model architecture & training", expanded=False):
     mc1, mc2, mc3, mc4 = st.columns(4)
     with mc1:
-        st.metric("Architecture", "5-layer MLP")
-        st.caption("256→128→64→21 · BatchNorm · Dropout 0.15")
+        st.metric("Architecture", "Residual MLP + Attn")
+        st.caption("512→256→128 → 36 · LayerNorm · Self-attention")
     with mc2:
         st.metric("Ensemble", "3 members")
         st.caption("Averaged softmax · best-val checkpoint")
     with mc3:
-        st.metric("Features", "31-dim")
-        st.caption("Multi-hot regions + density + bilateral")
+        st.metric("Features", "43-dim")
+        st.caption("Multi-hot regions + asymmetry + entropy + ratios")
     with mc4:
-        st.metric("Training", "400 epochs")
-        st.caption("AdamW · cosine annealing · label smoothing 0.05")
+        st.metric("Training", "200 epochs")
+        st.caption("AdamW · OneCycleLR · mixup · label smoothing 0.05")
     st.caption(
-        "The classifier is a **3-member ensemble** of 5-layer MLPs (Linear+BatchNorm+ReLU+Dropout), "
-        "trained on 16,800 signature-derived samples (800 per disease × 21 diseases) with minibatch "
-        "SGD (batch=64), best-validation checkpointing, and cosine-annealed learning rate. The richer "
-        "31-dim feature encoding (multi-hot region sets + lesion density + bilateral flag) lets the "
-        "ensemble distinguish diseases that share a dominant region but differ in regional spread."
+        "The classifier is a **3-member ensemble** of deep residual MLPs with self-attention "
+        "gating (Linear+BatchNorm+GELU+Dropout, 3 residual blocks), trained on 18,000 "
+        "signature-derived samples (500 per disease × 36 diseases) with minibatch SGD "
+        "(batch=64), mixup augmentation, stratified train/val split, best-validation "
+        "checkpointing, and OneCycleLR scheduling. The richer 43-dim feature encoding "
+        "(multi-hot region sets + asymmetry index + region entropy + cortical/deep ratios + "
+        "lesion density) lets the ensemble distinguish diseases that share a dominant region "
+        "but differ in regional spread."
     )
 
 # ---- Headline metric tiles ----
@@ -183,7 +186,7 @@ with tab_overview:
     if has_proba:
         st.markdown("#### Top-K accuracy (differential-diagnosis quality)")
         st.caption(
-            "With 21 diseases, top-3 accuracy is the clinically meaningful metric: "
+            "With 36 diseases, top-3 accuracy is the clinically meaningful metric: "
             "the shortlist a radiologist would consider before ordering follow-up tests."
         )
         charts.render(charts.top_k_chart(topk))

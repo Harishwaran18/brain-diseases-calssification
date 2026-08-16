@@ -34,9 +34,10 @@ st.success(
 st.subheader("Interactive 3D viewer (WebGL)")
 st.caption(
     "Genuine WebGL rendering (Three.js) of the real fsaverage cortex with PBR "
-    "shading — the gold standard for in-browser 3D brain visualisation. Drag to "
-    "rotate, scroll to zoom, right-drag to pan. The red lesion mesh highlights "
-    "pathology."
+    "shading, deep-brain-nuclei overlays (thalamus, basal ganglia, ventricles, "
+    "hippocampus from the Harvard-Oxford atlas), and a therapy impact zone. "
+    "Drag to rotate, scroll to zoom, right-drag to pan. The red lesion mesh "
+    "highlights pathology; the green sphere shows the treatment target."
 )
 
 sim = sess.simulation_override or (
@@ -47,11 +48,31 @@ sim = sess.simulation_override or (
 cortex = sess.load_real_cortex()
 cortex_mesh = cortex.meshes[0] if cortex and cortex.meshes else None
 
+# Deep brain nuclei overlays for multi-layered anatomical rendering.
+try:
+    from brainframe.data.real_brain import load_deep_nuclei
+
+    deep_nuclei = load_deep_nuclei()
+except Exception:
+    deep_nuclei = []
+
 # Segmented tissue meshes + lesion mesh for the WebGL scene.
 tissue_meshes = list(recon["meshes"].meshes)
 lesion_mesh = next((m for m in tissue_meshes if m.label == "lesion"), None)
 before_v = float(sim.get("before_lesion_volume_mm3", 0.0)) if sim else 0.0
 after_v = float(sim.get("after_lesion_volume_mm3", 0.0)) if sim else 0.0
+
+# Therapy impact zone: translucent sphere at the lesion centroid with the
+# recommended technique's radius, so users see the treatment target.
+# The viewer recenters the lesion to origin, so the centroid is [0,0,0] in
+# viewer space.
+impact_zone = None
+if lesion_mesh is not None and sess.recommendation:
+    impact_zone = {
+        "center": [0.0, 0.0, 0.0],
+        "radius": sess.recommendation.technique.radius_mm,
+        "color": 0x3FB950,
+    }
 
 render_three_brain(
     cortex_mesh=cortex_mesh,
@@ -61,6 +82,8 @@ render_three_brain(
     technique_name=(sess.recommendation.technique.name if sess.recommendation else None),
     before_volume=before_v,
     after_volume=after_v,
+    deep_nuclei=deep_nuclei,
+    impact_zone=impact_zone,
 )
 
 st.divider()

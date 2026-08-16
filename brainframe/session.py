@@ -174,19 +174,19 @@ class Session:
 
         Three complementary engines are blended:
 
-        1. **Evidence-based differential classifier** (primary, transparent) —
-           scores lesion features against the 21-disease taxonomy on four
+        1. **Trained deep MLP** (primary, learned) — a deep residual network
+           with self-attention trained on signature-derived data; gives a
+           learned probability distribution over all 36 diseases.
+        2. **Evidence-based differential classifier** (calibration, transparent)
+           — scores lesion features against the 36-disease taxonomy on four
            interpretable axes (region, pattern, laterality, size) and produces
            an auditable per-axis breakdown plus a calibrated confidence.
-        2. **Trained MLP** (feature-based, learned) — a 4-layer neural net
-           trained on signature-derived data (:mod:`brainframe.classification.
-           trained_model`); gives a learned probability distribution over all
-           diseases.
         3. **3D CNN** (optional secondary) — when MONAI weights are available.
 
-        The headline prediction and confidence come from the evidence engine;
-        the MLP and CNN sharpen the reported probability distribution when
-        they agree with it.
+        The MLP provides the primary prediction and probability distribution;
+        the evidence engine calibrates confidence and provides the auditable
+        breakdown. When both agree, confidence is boosted; when they disagree,
+        the MLP distribution is reported at reduced confidence.
         """
         if self.classification is not None:
             return self
@@ -198,6 +198,7 @@ class Session:
         lesion = self.evaluation["lesion"]
         lesion_dict = lesion.to_dict() if hasattr(lesion, "to_dict") else lesion
         report = classify(lesion_dict, self.label_volume, self.spacing)
+        from brainframe.classification.diseases import get_disease
         features = report.features
         # Trained MLP over the same features -> learned probability vector.
         mlp_probs: list[float] = []
@@ -235,29 +236,48 @@ class Session:
             except Exception as e:  # pragma: no cover - optional secondary
                 log.debug("Secondary NN classifier skipped: %s", e)
         disease = report.disease
-        # Build a full N-class probability vector centred on the evidence
-        # prediction, sharpened by agreement with the trained MLP + NN.
+        # Build a full N-class probability vector from the evidence scores.
         order = np.argsort([s.class_id for s in report.scores])
         ordered = np.array([s.score for s in report.scores])[order]
-        probs = ordered / (ordered.sum() + 1e-9)
-        if mlp_probs and len(mlp_probs) == len(probs):
+        evi_probs = ordered / (ordered.sum() + 1e-9)
+        # MLP is the primary predictor. If available, use its distribution
+        # as the base and blend with evidence for calibration.
+        if mlp_probs and len(mlp_probs) == len(evi_probs):
             mlp_arr = np.array(mlp_probs)
-            top_mlp = int(np.argmax(mlp_arr))
-            if top_mlp == report.prediction:
-                probs = 0.55 * probs + 0.45 * mlp_arr
+            mlp_pred = int(np.argmax(mlp_arr))
+            evi_pred = report.prediction
+            if mlp_pred == evi_pred:
+                # Both agree: blend MLP (primary) with evidence (calibration).
+                probs = 0.65 * mlp_arr + 0.35 * evi_probs
                 probs = probs / probs.sum()
+                prediction = mlp_pred
+                # Boost confidence when both engines agree.
+                confidence = min(0.99, report.confidence + 0.08)
+            else:
+                # Disagree: MLP takes priority but with reduced confidence.
+                probs = 0.70 * mlp_arr + 0.30 * evi_probs
+                probs = probs / probs.sum()
+                prediction = mlp_pred
+                # Lower confidence since the engines disagree.
+                confidence = max(0.45, report.confidence - 0.05)
+                disease = get_disease(prediction)
+        else:
+            # No MLP: fall back to evidence engine entirely.
+            probs = evi_probs
+            prediction = report.prediction
+            confidence = report.confidence
         if nn_probs and len(nn_probs) == len(probs):
             nn_arr = np.array(nn_probs)
             top_nn = int(np.argmax(nn_arr))
-            if top_nn == report.prediction:
-                probs = 0.7 * probs + 0.3 * nn_arr
+            if top_nn == prediction:
+                probs = 0.8 * probs + 0.2 * nn_arr
                 probs = probs / probs.sum()
         self.classification = {
             "subject": self.volume_path or "in-memory volume",
-            "prediction": report.prediction,
+            "prediction": prediction,
             "disease_name": disease.name,
             "disease_short_name": disease.short_name,
-            "confidence": report.confidence,
+            "confidence": confidence,
             "probabilities": probs.tolist(),
             "num_classes": len(probs),
             "differential": report.differential,
@@ -269,7 +289,7 @@ class Session:
         log.info(
             "Prediction: %s (conf %.3f)",
             disease.short_name,
-            report.confidence,
+            confidence,
         )
         return self
 

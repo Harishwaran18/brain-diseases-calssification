@@ -87,11 +87,11 @@ def test_to_dict_roundtrip():
     d = r.to_dict()
     assert d["prediction"] == 0
     assert "disease" in d and "features" in d
-    assert len(d["scores"]) == 21
+    assert len(d["scores"]) == 36
 
 
-def test_scores_cover_all_twentyone_diseases():
+def test_scores_cover_all_thirtysix_diseases():
     report = _lesion_report(0.0, 0)
     r = classify(report, None)
     class_ids = {s.class_id for s in r.scores}
-    assert class_ids == set(range(21))
+    assert class_ids == set(range(36))
