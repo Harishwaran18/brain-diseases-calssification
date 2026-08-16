@@ -153,21 +153,32 @@ simulator + compatibility score). Canonical label index in `brainframe.config.LA
   iframe DOM, use `browser_get_content` (extracts JS-mutated HTML) — NOT `browser_get_state`.
 
 ## Statistical evaluation module — added 2026-08
-- `brainframe/classification/stats.py`: classical stats for the trained MLP.
-  Functions: `f_test()` (one-way ANOVA per feature), `confusion_matrix()` (manual, no sklearn),
-  `chi_square_independence()`, `chi_square_goodness_of_fit()`, `evaluate_classifier()` (StatsReport),
-  `evaluate_trained_mlp()` (convenience entry: generates eval set + runs trained MLP).
-  Dataclasses: FTestResult, ChiSquareResult, ConfusionMatrix, StatsReport.
+- `brainframe/classification/stats.py`: classical + probabilistic stats for the trained MLP.
+  **Aggregate metrics** (on ConfusionMatrix): macro/weighted precision/recall/F1, specificity,
+  balanced accuracy, Cohen's kappa, MCC (multiclass Gorodkin formula).
+  **Probabilistic metrics** (require y_proba): ROC curves (OvR) + macro/weighted AUC,
+  precision-recall curves + average precision, calibration/ECE, top-K accuracy, log loss,
+  Brier score. Dataclasses: FTestResult, ChiSquareResult, ConfusionMatrix, ROCResult,
+  PRResult, CalibrationResult, TopKResult, StatsReport.
+  Functions: f_test, confusion_matrix, chi_square_independence, chi_square_goodness_of_fit,
+  roc_curves, pr_curves, calibration_curve, top_k_accuracy, multiclass_log_loss,
+  multiclass_brier_score, evaluate_classifier (accepts optional y_proba), evaluate_trained_mlp.
 - IMPORTANT: `_FEATURE_NAMES` and `_decode_categorical` are built from the live
   `diseases.PATTERNS/LATERALITIES/REGIONS` vocabularies (NOT hardcoded), so they stay in sync
   with `_FEATURE_DIM = 2 + 5 + 4 + 18 = 29`. Hardcoding region names caused a length mismatch
   (23 names vs 29 features) — keep using the live vocab.
-- `neurocure_app/pages/7_Model_Evaluation.py`: Streamlit page rendering all 3 techniques with
-  sliders (n_per_class, seed, alpha). Results cached in `st.session_state["stats_report"]`.
-- `neurocure_app/components/charts.py`: `confusion_matrix_chart()`, `f_test_chart()`,
-  `chi_square_chart()`. GOTCHA: `_THEME` dict contains a `margin` key, so when calling
-  `fig.update_layout()` you must pop `margin` from a copy of `_THEME` before spreading it, else
-  "got multiple values for keyword argument 'margin'".
+- GOTCHA (fixed): Cohen's kappa `pe` must use element-wise dot product of 1-D marginals
+  `np.dot(row, col)`, NOT `(row*col).sum()` with keepdims — that broadcasts to the full
+  outer product whose sum is always total^2, making pe=1.0 and kappa=0.0.
+- `neurocure_app/pages/7_Model_Evaluation.py`: 5-tab Streamlit dashboard (Overview /
+  Confusion Matrix / ROC & PR / Calibration / Feature Analysis) with metric tiles at top,
+  normalized confusion-matrix toggle, top confused pairs table, JSON report download.
+  Stores raw y_true/y_proba in session_state for the confidence histogram.
+- `neurocure_app/components/charts.py`: `confusion_matrix_chart()`, `normalized_confusion_matrix_chart()`,
+  `f_test_chart()`, `chi_square_chart()`, `per_class_metrics_chart()`, `roc_curves_chart()`,
+  `pr_curves_chart()`, `calibration_chart()`, `confidence_histogram_chart()`, `top_k_chart()`,
+  `top_confused_pairs()`, `metric_tiles()`. GOTCHA: `_THEME` dict contains a `margin` key, so
+  use `_theme_layout()` helper (pops margin) before passing explicit margin to update_layout.
 
 ## Three.js 3D viewer upgrades — added 2026-08
 - `neurocure_app/components/three_viewer.py`: PBR rendering with ACESFilmic tone mapping,
