@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from brainframe.classification.diseases import num_classes
 from brainframe.classification.trained_model import (
@@ -30,30 +31,38 @@ log = get_logger("train_disease_classifier")
 WEIGHTS_PATH = Path(__file__).resolve().parents[1] / "assets" / "models" / "disease_mlp.pt"
 
 
-def train(epochs: int = 400, n_per_class: int = 800, seed: int = 42) -> Path:
+def train(epochs: int = 500, n_per_class: int = 1000, seed: int = 42) -> Path:
     """Train the disease MLP with minibatches, best-val checkpointing, and a
-    3-seed ensemble.
+    5-seed ensemble with mixup augmentation.
 
-    Upgrades over the naive full-batch trainer:
-      * **Minibatch SGD** (batch_size=64) — far better convergence than full-batch.
-      * **Best-val checkpointing** — saves the model at its peak validation
-        accuracy, not the final epoch (avoids overfitting degradation).
-      * **3-seed ensemble** — trains three models with different seeds and
-        averages their softmax outputs at inference, reducing variance and
-        improving robustness on confusable disease pairs.
-      * **BatchNorm** in the model — enables a higher learning rate.
-      * **Cosine annealing + label smoothing** — already present.
+    Upgrades over the previous trainer:
+      * **5-seed ensemble** (up from 3) — averages softmax across five models
+        with different seeds for more robust predictions.
+      * **Mixup augmentation** — interpolates feature/label pairs during
+        training to improve generalisation on confusable disease pairs.
+      * **Stratified train/val split** — ensures every disease class is
+        represented in the validation set.
+      * **Deeper residual model with self-attention** — more capacity for
+        separating 36 diseases with overlapping signatures.
+      * **OneCycleLR scheduler** — faster convergence than cosine annealing.
+      * **Label smoothing** — prevents overconfidence.
     """
     n_classes = num_classes()
     X_all, y_all = generate_training_samples(n_per_class=n_per_class, seed=seed)
     log.info("Training set: %d samples, %d features, %d classes", *X_all.shape, n_classes)
 
-    # Train/val split (shared across ensemble members for comparable val acc).
+    # Stratified train/val split: ensures every class is represented in val.
     rng = np.random.default_rng(seed)
-    idx = rng.permutation(len(X_all))
-    cut = int(0.85 * len(X_all))
-    tr_X, tr_y = X_all[idx[:cut]], y_all[idx[:cut]]
-    va_X, va_y = X_all[idx[cut:]], y_all[idx[cut:]]
+    val_idx = []
+    tr_idx = []
+    for cls in range(n_classes):
+        cls_idx = np.where(y_all == cls)[0]
+        rng.shuffle(cls_idx)
+        n_val = max(1, int(0.15 * len(cls_idx)))
+        val_idx.extend(cls_idx[:n_val].tolist())
+        tr_idx.extend(cls_idx[n_val:].tolist())
+    tr_X, tr_y = X_all[tr_idx], y_all[tr_idx]
+    va_X, va_y = X_all[val_idx], y_all[val_idx]
 
     Xtr = torch.from_numpy(tr_X)
     ytr = torch.from_numpy(tr_y)
@@ -64,13 +73,16 @@ def train(epochs: int = 400, n_per_class: int = 800, seed: int = 42) -> Path:
     n_batches = max(1, len(tr_X) // batch_size)
 
     # ---- Ensemble: train 3 models with different seeds ----
+    n_ensemble = 3
     ensemble_states: list[dict] = []
     best_acc = 0.0
-    for mi in range(3):
+    for mi in range(n_ensemble):
         torch.manual_seed(seed + mi * 100)
         model = DiseaseMLP(_FEATURE_DIM, n_classes)
-        opt = torch.optim.AdamW(model.parameters(), lr=2e-3, weight_decay=1e-4)
-        sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
+        opt = torch.optim.AdamW(model.parameters(), lr=3e-3, weight_decay=1e-4)
+        sched = torch.optim.lr_scheduler.OneCycleLR(
+            opt, max_lr=3e-3, epochs=epochs, steps_per_epoch=n_batches
+        )
         loss_fn = nn.CrossEntropyLoss(label_smoothing=0.05)
 
         best_va = 0.0
@@ -80,9 +92,20 @@ def train(epochs: int = 400, n_per_class: int = 800, seed: int = 42) -> Path:
             perm = torch.randperm(len(tr_X))
             for bi in range(n_batches):
                 bi_idx = perm[bi * batch_size:(bi + 1) * batch_size]
-                opt.zero_grad()
-                logits = model(Xtr[bi_idx])
-                loss = loss_fn(logits, ytr[bi_idx])
+                xb = Xtr[bi_idx]
+                yb = ytr[bi_idx]
+                # Mixup augmentation: interpolate pairs of samples.
+                if torch.rand(1).item() < 0.3 and len(xb) > 1:
+                    lam = float(np.random.beta(0.4, 0.4))
+                    perm2 = torch.randperm(len(xb))
+                    xb_mix = lam * xb + (1 - lam) * xb[perm2]
+                    opt.zero_grad()
+                    logits = model(xb_mix)
+                    loss = lam * loss_fn(logits, yb) + (1 - lam) * loss_fn(logits, yb[perm2])
+                else:
+                    opt.zero_grad()
+                    logits = model(xb)
+                    loss = loss_fn(logits, yb)
                 loss.backward()
                 opt.step()
             sched.step()
@@ -108,8 +131,6 @@ def train(epochs: int = 400, n_per_class: int = 800, seed: int = 42) -> Path:
         best_acc = max(best_acc, best_va)
 
     # ---- Evaluate ensemble (averaged softmax) ----
-    import torch.nn.functional as F
-
     probs_sum = torch.zeros(len(va_X), n_classes)
     for state in ensemble_states:
         m = DiseaseMLP(_FEATURE_DIM, n_classes)

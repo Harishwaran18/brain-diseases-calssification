@@ -26,14 +26,14 @@ def test_app_shell_renders_welcome():
     assert any("NeuroCure" in t.value for t in at.title)
     all_md = " ".join(m.value for m in at.markdown)
     assert "Retraining-Free AI Framework" in all_md
-    assert "Workflow" in all_md  # sidebar header rendered
+    assert "Navigation" in all_md  # sidebar header rendered
 
 
 def test_app_shell_sidebar_lists_all_pages():
-    """The sidebar workflow section is rendered (markdown header present)."""
+    """The sidebar navigation section is rendered (markdown header present)."""
     at = _app("app.py").run()
     all_md = " ".join(m.value for m in at.markdown)
-    assert "Workflow" in all_md
+    assert "Navigation" in all_md
     # page_link labels are not surfaced by AppTest in this version; verify
     # the sidebar divider/header markdown is present instead.
 

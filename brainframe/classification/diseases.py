@@ -6,7 +6,7 @@ evidence-based differential classifier (:mod:`~brainframe.classification.evidenc
 scores extracted lesion features against these signatures to produce a
 calibrated, transparent disease hypothesis with confidence.
 
-The taxonomy covers 20 major categories encountered in clinical neuroimaging:
+The taxonomy covers 36 major categories encountered in clinical neuroimaging:
 
     0  Healthy / no significant abnormality
     1  Alzheimer's disease (medial-temporal / parietal atrophy)
@@ -29,6 +29,21 @@ The taxonomy covers 20 major categories encountered in clinical neuroimaging:
    18  Vascular dementia (diffuse small-vessel disease)
    19  Progressive supranuclear palsy (midbrain atrophy)
    20  Brain abscess (ring-enhancing encapsulated infection)
+   21  Corticobasal degeneration (asymmetric frontoparietal atrophy)
+   22  Multiple system atrophy (pontocerebellar / striatonigral)
+   23  CADASIL (genetic small-vessel white-matter disease)
+   24  Subarachnoid haemorrhage (basal cistern / sulcal blood)
+   25  Epidural haematoma (lens-shaped extra-axial collection)
+   26  Arteriovenous malformation (tangle of abnormal vessels)
+   27  Cavernous malformation (haemosiderin-rimmed cavernoma)
+   28  Arachnoid cyst (CSF-filled extra-axial cyst)
+   29  Colloid cyst (foramen of Monro obstruction)
+   30  Pituitary adenoma (sellar mass)
+   31  Vestibular schwannoma (cerebellopontine angle mass)
+   32  Progressive multifocal leukoencephalopathy (viral white-matter)
+   33  Central pontine myelinolysis (osmotic demyelination, pons)
+   34  Radiation necrosis (delayed post-radiation injury)
+   35  Wernicke encephalopathy (thiamine deficiency, mammillary bodies)
 
 Each signature is literature-informed (see ``references``). This module is pure
 data and has no side effects, so it is trivially unit-testable.
@@ -104,9 +119,14 @@ REGIONS = (
     "midbrain",
     "extra_axial",
     "gray_white_junction",
+    "corpus_callosum",
+    "internal_capsule",
+    "cerebellopontine_angle",
+    "pituitary_fossa",
+    "pineal",
 )
 
-PATTERNS = ("focal", "diffuse", "symmetric", "periventricular", "ring_enhancing")
+PATTERNS = ("focal", "diffuse", "symmetric", "periventricular", "ring_enhancing", "cystic", "hemorrhagic")
 LATERALITIES = ("left", "right", "bilateral", "any")
 
 
@@ -524,6 +544,312 @@ DISEASE_TAXONOMY: list[DiseaseSignature] = [
         references=[
             "Brouwer MC. et al., N Engl J Med 2014 (brain abscess)",
             "Mathisen GE. et al., Infect Dis Clin North Am 2010 (abscess)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=21,
+        name="Corticobasal degeneration",
+        short_name="CBD",
+        preferred_regions=("frontal", "parietal", "basal_ganglia", "motor_cortex"),
+        pattern="symmetric",
+        laterality="bilateral",
+        size_mm3=(100.0, 1500.0),
+        region_count=(1, 3),
+        icd_block="ICD-11 8A40.2 Corticobasal degeneration",
+        summary=(
+            "Asymmetric frontoparietal cortical atrophy with basal-ganglia "
+            "involvement. Characterised by apraxia, cortical sensory loss, and "
+            "alien limb phenomenon; tau pathology in swollen achromatic neurons."
+        ),
+        references=[
+            "Armstrong MJ. et al., Neurology 2013 (CBD criteria)",
+            "Boeve BF. et al., Brain 2003 (corticobasal degeneration)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=22,
+        name="Multiple system atrophy",
+        short_name="MSA",
+        preferred_regions=("brainstem", "cerebellum", "basal_ganglia", "corona_radiata"),
+        pattern="symmetric",
+        laterality="bilateral",
+        size_mm3=(100.0, 2000.0),
+        region_count=(1, 4),
+        icd_block="ICD-11 8A40.1 Multiple system atrophy",
+        summary=(
+            "Pontocerebellar atrophy (MSA-C) or striatonigral degeneration "
+            "(MSA-P). MRI shows the 'hot cross bun' sign in the pons and "
+            "putaminal atrophy with iron deposition. Alpha-synuclein glial "
+            "cytoplasmic inclusions."
+        ),
+        references=[
+            "Wenning GK. et al., Lancet Neurol 2022 (MSA review)",
+            "Gilman S. et al., Neurology 2008 (MSA consensus criteria)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=23,
+        name="CADASIL",
+        short_name="CADASIL",
+        preferred_regions=("periventricular", "corona_radiata", "temporal", "frontal"),
+        pattern="diffuse",
+        laterality="bilateral",
+        size_mm3=(200.0, 6000.0),
+        region_count=(3, 20),
+        icd_block="ICD-11 8A45.Y CADASIL",
+        summary=(
+            "Cerebral autosomal dominant arteriopathy with subcortical infarcts "
+            "and leukoencephalopathy. NOTCH3 mutation causes diffuse white-matter "
+            "hyperintensities with characteristic anterior temporal pole and "
+            "external capsule involvement."
+        ),
+        references=[
+            "Chabriat H. et al., Lancet Neurol 2009 (CADASIL)",
+            "Markus HS. et al., Brain 2002 (CADASIL MRI)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=24,
+        name="Subarachnoid haemorrhage",
+        short_name="SAH",
+        preferred_regions=("ventricular", "extra_axial", "brainstem", "temporal"),
+        pattern="hemorrhagic",
+        laterality="any",
+        size_mm3=(500.0, 30000.0),
+        region_count=(1, 5),
+        icd_block="ICD-11 8B10 Subarachnoid haemorrhage",
+        summary=(
+            "Blood in the subarachnoid space, typically from a ruptured berry "
+            "aneurysm. CT shows hyperdense basal cisterns/sulci; may extend into "
+            "ventricles. Associated with thunderclap headache and rebleeding risk."
+        ),
+        references=[
+            "Connolly ES. et al., Stroke 2012 (SAH guidelines)",
+            "Macdonald RL. et al., Lancet 2007 (SAH management)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=25,
+        name="Epidural haematoma",
+        short_name="EDH",
+        preferred_regions=("extra_axial", "temporal", "parietal", "frontal"),
+        pattern="hemorrhagic",
+        laterality="any",
+        size_mm3=(2000.0, 50000.0),
+        region_count=(1, 1),
+        icd_block="ICD-11 8B11 Epidural haemorrhage",
+        summary=(
+            "Lens-shaped extra-axial collection between skull and dura, typically "
+            "from middle meningeal artery laceration (temporal fracture). Does "
+            "NOT cross sutures. Neurosurgical emergency due to rapid expansion."
+        ),
+        references=[
+            "Bullock MR. et al., Neurosurgery 2006 (TBI guidelines, EDH)",
+            "Narayan RK. et al., J Neurotrauma 2002 (EDH management)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=26,
+        name="Arteriovenous malformation",
+        short_name="AVM",
+        preferred_regions=("frontal", "parietal", "temporal", "occipital", "cerebellum"),
+        pattern="focal",
+        laterality="any",
+        size_mm3=(500.0, 30000.0),
+        region_count=(1, 2),
+        icd_block="ICD-11 8B22 Arteriovenous malformation",
+        summary=(
+            "Congenital tangle of abnormal vessels with direct artery-to-vein "
+            "shunting (no capillary bed). Flow voids on MRI; presents with "
+            "haemorrhage, seizures, or headache. Spetzler-Martin grading."
+        ),
+        references=[
+            "Spetzler RF. et al., J Neurosurg 1986 (AVM grading)",
+            "Al-Shahi Salman R. et al., Lancet 2012 (AVM management)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=27,
+        name="Cavernous malformation",
+        short_name="Cavernoma",
+        preferred_regions=("brainstem", "basal_ganglia", "frontal", "temporal", "cerebellum"),
+        pattern="hemorrhagic",
+        laterality="any",
+        size_mm3=(50.0, 5000.0),
+        region_count=(1, 5),
+        icd_block="ICD-11 8B22.1 Cavernous haemangioma",
+        summary=(
+            "Cluster of thin-walled sinusoidal vessels with a haemosiderin rim "
+            "on MRI (popcorn-like T2 hyperintensity with dark rim). Multiple "
+            "lesions may be familial (CCM1/2/3 mutations). Re-bleeding risk."
+        ),
+        references=[
+            "Moran NF. et al., Brain 1999 (cavernoma natural history)",
+            "Zabramski JM. et al., J Neurosurg 1994 (cavernoma classification)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=28,
+        name="Arachnoid cyst",
+        short_name="Arachnoid",
+        preferred_regions=("extra_axial", "temporal", "cerebellopontine_angle", "frontal"),
+        pattern="cystic",
+        laterality="any",
+        size_mm3=(1000.0, 80000.0),
+        region_count=(1, 2),
+        icd_block="ICD-11 8D60 Arachnoid cyst",
+        summary=(
+            "Benign CSF-filled cyst between arachnoid layers, most common in the "
+            "middle cranial fossa. Follows CSF signal on all MRI sequences. Usually "
+            "asymptomatic; surgery only if symptomatic (compression/hydrocephalus)."
+        ),
+        references=[
+            "Pradilla G. et al., Neurosurgery 2013 (arachnoid cysts)",
+            "Al-Holou WN. et al., J Neurosurg 2010 (arachnoid cyst epidemiology)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=29,
+        name="Colloid cyst",
+        short_name="Colloid",
+        preferred_regions=("ventricular", "frontal", "limbic"),
+        pattern="cystic",
+        laterality="any",
+        size_mm3=(200.0, 5000.0),
+        region_count=(1, 1),
+        icd_block="ICD-11 2A10.0 Colloid cyst",
+        summary=(
+            "Benign epithelial-lined cyst at the foramen of Monro causing "
+            "obstructive hydrocephalus. Can cause sudden death (acute ventricular "
+            "obstruction). Hyperdense on CT; variable MRI signal."
+        ),
+        references=[
+            "Pollock BE. et al., Neurosurgery 2000 (colloid cyst management)",
+            "Desai KI. et al., J Neurosurg 2002 (colloid cyst review)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=30,
+        name="Pituitary adenoma",
+        short_name="Pituitary",
+        preferred_regions=("pituitary_fossa", "extra_axial", "temporal"),
+        pattern="focal",
+        laterality="any",
+        size_mm3=(500.0, 30000.0),
+        region_count=(1, 1),
+        icd_block="ICD-11 2F37.Y Pituitary adenoma",
+        summary=(
+            "Sellar mass arising from adenohypophysis. Microadenoma (<10mm) or "
+            "macroadenoma (≥10mm) with suprasellar extension and chiasmal "
+            "compression. Functional (prolactin/GH/ACTH) or non-functional."
+        ),
+        references=[
+            "Molitch ME. et al., J Clin Endocrinol Metab 2011 (prolactinoma)",
+            "Freda PU. et al., J Clin Endocrinol Metab 2011 (acromegaly)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=31,
+        name="Vestibular schwannoma",
+        short_name="Schwannoma",
+        preferred_regions=("cerebellopontine_angle", "cerebellum", "brainstem", "extra_axial"),
+        pattern="focal",
+        laterality="any",
+        size_mm3=(500.0, 20000.0),
+        region_count=(1, 1),
+        icd_block="ICD-11 2A06.0 Vestibular schwannoma",
+        summary=(
+            "Benign tumour of Schwann cells in the cerebellopontine angle from "
+            "the vestibular branch of CN VIII. 'Ice-cream cone' appearance on MRI "
+            "with enhancing ice-cream in the IAC. Bilateral in NF2."
+        ),
+        references=[
+            "Hasegawa T. et al., J Neurosurg 2005 (schwannoma gamma knife)",
+            "Carlson ML. et al., J Neurosurg 2013 (vestibular schwannoma review)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=32,
+        name="Progressive multifocal leukoencephalopathy",
+        short_name="PML",
+        preferred_regions=("frontal", "parietal", "occipital", "corona_radiata", "cerebellum"),
+        pattern="diffuse",
+        laterality="any",
+        size_mm3=(500.0, 20000.0),
+        region_count=(1, 8),
+        icd_block="ICD-11 8A42 PML",
+        summary=(
+            "Demyelinating disease caused by JC virus reactivation in "
+            "immunocompromised patients (HIV, natalizumab). Multiple large "
+            "asymmetric white-matter lesions, often parieto-occipital, without "
+            "mass effect or enhancement (except IRIS)."
+        ),
+        references=[
+            "Berger JR. et al., N Engl J Med 2012 (PML review)",
+            "Major EO. et al., Lancet Neurol 2010 (PML pathogenesis)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=33,
+        name="Central pontine myelinolysis",
+        short_name="CPM",
+        preferred_regions=("brainstem", "midbrain", "basal_ganglia"),
+        pattern="symmetric",
+        laterality="bilateral",
+        size_mm3=(200.0, 5000.0),
+        region_count=(1, 3),
+        icd_block="ICD-11 8A45 Osmotic demyelination",
+        summary=(
+            "Osmotic demyelination syndrome from rapid sodium correction, "
+            "classically a central pontine T2 hyperintensity sparing the "
+            "ventral pons ('trident' sign). Extrapontine lesions in basal "
+            "ganglia may co-occur."
+        ),
+        references=[
+            "Sterns RH. et al., N Engl J Med 1986 (osmotic demyelination)",
+            "Singh TD. et al., Mayo Clin Proc 2015 (CPM review)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=34,
+        name="Radiation necrosis",
+        short_name="RadNecrosis",
+        preferred_regions=("frontal", "temporal", "parietal", "occipital", "corona_radiata"),
+        pattern="ring_enhancing",
+        laterality="any",
+        size_mm3=(500.0, 30000.0),
+        region_count=(1, 4),
+        icd_block="ICD-11 8B20 Radiation injury",
+        summary=(
+            "Delayed (6-24 months) radiation-induced tissue necrosis within the "
+            "treatment field. Ring-enhancing or 'soap-bubble' lesion with "
+            "surrounding oedema; mimics tumour recurrence. Distinguished by "
+            "PERFUSION/SPECT (low rCBV) or MR spectroscopy."
+        ),
+        references=[
+            "Chao ST. et al., J Neurooncol 2015 (radiation necrosis)",
+            "Sundgren PC. et al., Radiology 2004 (radiation necrosis MRS)",
+        ],
+    ),
+    DiseaseSignature(
+        class_id=35,
+        name="Wernicke encephalopathy",
+        short_name="Wernicke",
+        preferred_regions=("thalamus", "brainstem", "midbrain", "ventricular"),
+        pattern="symmetric",
+        laterality="bilateral",
+        size_mm3=(50.0, 1500.0),
+        region_count=(1, 4),
+        icd_block="ICD-11 5B10 Thiamine deficiency",
+        summary=(
+            "Thiamine (B1) deficiency with symmetric T2 hyperintensity in the "
+            "mammillary bodies, medial thalami, periaqueductal grey, and floor "
+            "of the fourth ventricle. Classic triad: ataxia, confusion, "
+            "ophthalmoplegia. Reversible with prompt thiamine."
+        ),
+        references=[
+            "Zuccoli G. et al., Radiology 2009 (Wernicke MRI)",
+            "Sechi G. et al., Lancet Neurol 2002 (Wernicke review)",
         ],
     ),
 ]

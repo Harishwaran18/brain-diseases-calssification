@@ -5,6 +5,20 @@
 neurodegenerative brain reconstruction & therapy evaluation framework. Package import
 name is `brainframe`. CLI entry: `python -m brainframe <subcommand>`.
 
+## Disease Taxonomy (36 classes)
+Classes 0-35: Healthy, AD, PD, MS, Glioma, Stroke, Epilepsy, HD, ALS, TBI,
+Meningioma, Metastasis, MCA_Infarct, SDH, NPH, CJD, FTD, LBD, VaD, PSP, Abscess,
+CBD, MSA, CADASIL, SAH, EDH, AVM, Cavernoma, Arachnoid, Colloid, Pituitary,
+Schwannoma, PML, CPM, RadNecrosis, Wernicke.
+23 anatomical regions, 7 patterns (focal/diffuse/symmetric/periventricular/ring_enhancing/cystic/hemorrhagic).
+
+## Model Architecture
+Deep residual MLP with self-attention (512->256->128->36, 3 residual blocks, LayerNorm, GELU).
+43-dim features: volume, n_regions, density, bilateral, asymmetry, entropy, cortical/deep ratios,
+pattern/laterality/region one-hot. 3-member ensemble with mixup, OneCycleLR, stratified split.
+Weights: assets/models/disease_mlp.pt (~20MB). Train: scripts/train_disease_classifier.py (~35 min CPU).
+
+
 ## Environment
 - Python 3.13, torch 2.13 CPU-only, monai 1.6, numpy 2.5, scipy, scikit-image, nibabel,
   trimesh, plotly, matplotlib.

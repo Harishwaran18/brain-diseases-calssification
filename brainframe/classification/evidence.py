@@ -250,8 +250,10 @@ def _score_pattern(sig: DiseaseSignature, features: LesionFeatures) -> float:
         "periventricular": {"diffuse"},
         "diffuse": {"periventricular", "symmetric"},
         "symmetric": {"diffuse"},
-        "focal": {"ring_enhancing"},
+        "focal": {"ring_enhancing", "cystic"},
         "ring_enhancing": {"focal"},
+        "cystic": {"focal"},
+        "hemorrhagic": {"focal", "ring_enhancing"},
     }
     if features.pattern in related.get(sig.pattern, set()):
         return 0.5

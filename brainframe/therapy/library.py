@@ -480,6 +480,326 @@ TECHNIQUE_LIBRARY: list[TherapyTechnique] = [
             "Mathisen GE. et al., Infect Dis Clin North Am 2010 (abscess)",
         ],
     ),
+    TherapyTechnique(
+        id="cbd_symptomatic_tau",
+        name="Symptomatic therapy + tau-targeted experimental immunotherapy",
+        disease_class=21,  # Corticobasal degeneration
+        mode="stimulation",
+        target_mode="largest_region",
+        radius_mm=14.0,
+        dose=0.35,
+        sigma_mm=9.0,
+        rationale=(
+            "Corticobasal degeneration has no disease-modifying therapy. "
+            "Levodopa is trialled (limited benefit); clonazepam/levetiracetam "
+            "for myoclonus. Tau-targeted antibodies (semorinemab) are under "
+            "investigation. Stimulation field models symptomatic cortical support."
+        ),
+        expected_effect="Modest symptomatic relief; progression continues.",
+        references=[
+            "Armstrong MJ. et al., Neurology 2013 (CBD criteria)",
+            "Boxer AL. et al., Nat Rev Neurol 2013 (tau-targeted therapy)",
+        ],
+    ),
+    TherapyTechnique(
+        id="msa_supportive",
+        name="Symptomatic therapy + autonomic support + physical rehabilitation",
+        disease_class=22,  # Multiple system atrophy
+        mode="stimulation",
+        target_mode="largest_region",
+        radius_mm=15.0,
+        dose=0.30,
+        sigma_mm=9.0,
+        rationale=(
+            "Multiple system atrophy has no disease-modifying therapy. "
+            "Levodopa for parkinsonism (limited); midodrine/fludrocortisone for "
+            "orthostatic hypotension; continuous positive airway pressure for "
+            "stridor; physical therapy for gait/balance."
+        ),
+        expected_effect="Symptomatic improvement; disease-modifying therapy remains elusive.",
+        references=[
+            "Wenning GK. et al., Lancet Neurol 2022 (MSA review)",
+            "Fanciulli A. et al., Mov Disord 2021 (MSA management consensus)",
+        ],
+    ),
+    TherapyTechnique(
+        id="cadasil_risk_control",
+        name="Antiplatelet + vascular risk control + cognitive rehabilitation",
+        disease_class=23,  # CADASIL
+        mode="stimulation",
+        target_mode="largest_region",
+        radius_mm=16.0,
+        dose=0.45,
+        sigma_mm=10.0,
+        rationale=(
+            "CADASIL (NOTCH3 mutation) has no specific disease-modifying therapy. "
+            "Management targets secondary stroke prevention: antiplatelets (avoid "
+            "anticoagulation due to haemorrhage risk), aggressive vascular risk "
+            "factor control, and cognitive rehabilitation."
+        ),
+        expected_effect="Slowed progression of white-matter lesions and cognitive decline.",
+        references=[
+            "Chabriat H. et al., Lancet Neurol 2009 (CADASIL)",
+            "Adib-Samii P. et al., Stroke 2010 (CADASIL management)",
+        ],
+    ),
+    TherapyTechnique(
+        id="sah_clipping_coiling",
+        name="Aneurysm securing (clip/coil) + nimodipine + vasospasm management",
+        disease_class=24,  # Subarachnoid haemorrhage
+        mode="lesion_reversal",
+        target_mode="largest_region",
+        radius_mm=24.0,
+        dose=0.80,
+        sigma_mm=12.0,
+        rationale=(
+            "Ruptured aneurysm requires urgent securing (endovascular coiling or "
+            "surgical clipping). Nimodipine (21 days) prevents delayed cerebral "
+            "ischaemia from vasospasm. The reversal field models clot clearance "
+            "and vasospasm resolution."
+        ),
+        expected_effect="Secured aneurysm; reduced rebleeding risk; vasospasm mitigation.",
+        references=[
+            "Connolly ES. et al., Stroke 2012 (SAH guidelines)",
+            "Molyneux AJ. et al., Lancet 2005 (ISAT coiling vs clipping)",
+        ],
+    ),
+    TherapyTechnique(
+        id="edh_evacuation",
+        name="Emergency surgical evacuation (craniotomy)",
+        disease_class=25,  # Epidural haematoma
+        mode="lesion_reversal",
+        target_mode="largest_region",
+        radius_mm=28.0,
+        dose=0.92,
+        sigma_mm=12.0,
+        rationale=(
+            "Epidural haematoma is a neurosurgical emergency. Evacuation via "
+            "craniotomy (or burr-hole drainage if craniotomy unavailable) relieves "
+            "mass effect. The reversal field models rapid clot evacuation with "
+            "brain re-expansion."
+        ),
+        expected_effect="80-95% clot evacuation; full neurological recovery if timely.",
+        references=[
+            "Bullock MR. et al., Neurosurgery 2006 (TBI guidelines, EDH)",
+            "Narayan RK. et al., J Neurotrauma 2002 (EDH management)",
+        ],
+    ),
+    TherapyTechnique(
+        id="avm_embolization",
+        name="Multimodal AVM treatment (embolization + surgery/radiosurgery)",
+        disease_class=26,  # Arteriovenous malformation
+        mode="lesion_reversal",
+        target_mode="largest_region",
+        radius_mm=22.0,
+        dose=0.75,
+        sigma_mm=11.0,
+        rationale=(
+            "AVM treatment depends on Spetzler-Martin grade: endovascular "
+            "embolization (ONYX/nBCA), microsurgical resection, or stereotactic "
+            "radiosurgery (Gamma Knife), often combined. The reversal field "
+            "models progressive nidus obliteration."
+        ),
+        expected_effect="60-90% nidus obliteration; haemorrhage risk eliminated.",
+        references=[
+            "Spetzler RF. et al., J Neurosurg 1986 (AVM grading)",
+            "Al-Shahi Salman R. et al., Lancet 2012 (AVM management)",
+        ],
+    ),
+    TherapyTechnique(
+        id="cavernoma_resection",
+        name="Microsurgical resection + haemosiderin rim excision",
+        disease_class=27,  # Cavernous malformation
+        mode="lesion_reversal",
+        target_mode="largest_region",
+        radius_mm=18.0,
+        dose=0.78,
+        sigma_mm=9.0,
+        rationale=(
+            "Cavernous malformations are resected if symptomatic (haemorrhage, "
+            "seizures) and surgically accessible. Complete excision including the "
+            "haemosiderin rim reduces re-bleeding and seizure recurrence. Deep/"
+            "brainstem lesions may be observed or treated with radiosurgery."
+        ),
+        expected_effect="75-90% complete resection; seizure freedom in 70-80%.",
+        references=[
+            "Moran NF. et al., Brain 1999 (cavernoma natural history)",
+            "Zabramski JM. et al., J Neurosurg 1994 (cavernoma classification)",
+        ],
+    ),
+    TherapyTechnique(
+        id="arachnoid_fenestration",
+        name="Endoscopic fenestration / cystoperitoneal shunt",
+        disease_class=28,  # Arachnoid cyst
+        mode="lesion_reversal",
+        target_mode="largest_region",
+        radius_mm=20.0,
+        dose=0.70,
+        sigma_mm=10.0,
+        rationale=(
+            "Symptomatic arachnoid cysts are treated by endoscopic fenestration "
+            "(into the ventricle or cisterns) or cystoperitoneal shunting. The "
+            "reversal field models cyst decompression and brain re-expansion. "
+            "Asymptomatic cysts are monitored."
+        ),
+        expected_effect="60-80% cyst volume reduction; symptom resolution.",
+        references=[
+            "Pradilla G. et al., Neurosurgery 2013 (arachnoid cysts)",
+            "Al-Holou WN. et al., J Neurosurg 2010 (arachnoid cyst epidemiology)",
+        ],
+    ),
+    TherapyTechnique(
+        id="colloid_resection",
+        name="Neuroendoscopic resection / microsurgical removal",
+        disease_class=29,  # Colloid cyst
+        mode="lesion_reversal",
+        target_mode="centroid",
+        radius_mm=12.0,
+        dose=0.85,
+        sigma_mm=7.0,
+        rationale=(
+            "Colloid cysts at the foramen of Monro cause obstructive "
+            "hydrocephalus and potential sudden death. Treated by "
+            "neuroendoscopic fenestration/resection or microsurgical removal "
+            "via a transcortical/transcallosal approach. The reversal field "
+            "models cyst evacuation with CSF flow restoration."
+        ),
+        expected_effect="85-95% complete resection; hydrocephalus resolved.",
+        references=[
+            "Pollock BE. et al., Neurosurgery 2000 (colloid cyst management)",
+            "Desai KI. et al., J Neurosurg 2002 (colloid cyst review)",
+        ],
+    ),
+    TherapyTechnique(
+        id="pituitary_resection",
+        name="Transsphenoidal resection + hormonal management",
+        disease_class=30,  # Pituitary adenoma
+        mode="lesion_reversal",
+        target_mode="centroid",
+        radius_mm=16.0,
+        dose=0.82,
+        sigma_mm=9.0,
+        rationale=(
+            "Pituitary macroadenomas are resected via endoscopic transsphenoidal "
+            "approach (microadenomas may be medical: dopamine agonists for "
+            "prolactinomas, somatostatin analogues for GH adenomas). The reversal "
+            "field models tumour debulking with chiasmal decompression."
+        ),
+        expected_effect="70-90% tumour resection; visual and hormonal recovery.",
+        references=[
+            "Molitch ME. et al., J Clin Endocrinol Metab 2011 (prolactinoma)",
+            "Freda PU. et al., J Clin Endocrinol Metab 2011 (acromegaly)",
+        ],
+    ),
+    TherapyTechnique(
+        id="schwannoma_resection",
+        name="Microsurgical resection / stereotactic radiosurgery",
+        disease_class=31,  # Vestibular schwannoma
+        mode="lesion_reversal",
+        target_mode="largest_region",
+        radius_mm=16.0,
+        dose=0.80,
+        sigma_mm=9.0,
+        rationale=(
+            "Vestibular schwannomas are managed by microsurgical resection "
+            "(retrosigmoid/translabyrinthine) or stereotactic radiosurgery "
+            "(Gamma Knife), or observation for small/asymptomatic lesions. The "
+            "reversal field models tumour volume reduction with facial/cochlear "
+            "nerve preservation."
+        ),
+        expected_effect="75-95% tumour control; hearing preservation variable.",
+        references=[
+            "Hasegawa T. et al., J Neurosurg 2005 (schwannoma gamma knife)",
+            "Carlson ML. et al., J Neurosurg 2013 (vestibular schwannoma review)",
+        ],
+    ),
+    TherapyTechnique(
+        id="pml_antiviral",
+        name="Immune reconstitution + antiviral therapy",
+        disease_class=32,  # PML
+        mode="regeneration",
+        target_mode="largest_region",
+        radius_mm=22.0,
+        dose=0.50,
+        sigma_mm=11.0,
+        rationale=(
+            "Progressive multifocal leukoencephalopathy (JC virus) requires "
+            "immune reconstitution (HAART for HIV, plasmapheresis for "
+            "natalizumab-associated PML). Mefloquine and mirtazapine have "
+            "anti-JC virus activity in vitro. The regeneration field models "
+            "white-matter recovery following immune restoration."
+        ),
+        expected_effect="30-50% lesion stabilisation/recovery if immune restored; IRIS risk.",
+        references=[
+            "Berger JR. et al., N Engl J Med 2012 (PML review)",
+            "Major EO. et al., Lancet Neurol 2010 (PML pathogenesis)",
+        ],
+    ),
+    TherapyTechnique(
+        id="cpm_correction",
+        name="Gradual correction + supportive care + osmotic management",
+        disease_class=33,  # Central pontine myelinolysis
+        mode="regeneration",
+        target_mode="centroid",
+        radius_mm=14.0,
+        dose=0.40,
+        sigma_mm=9.0,
+        rationale=(
+            "Central pontine myelinolysis is prevented by gradual sodium "
+            "correction (<8-10 mmol/L/24h). Once established, treatment is "
+            "supportive; experimental therapies include IV immunoglobulin, "
+            "thyrotropin-releasing hormone, and plasmapheresis. The regeneration "
+            "field models partial myelin recovery."
+        ),
+        expected_effect="Variable recovery; 30-50% of survivors have residual deficits.",
+        references=[
+            "Sterns RH. et al., N Engl J Med 1986 (osmotic demyelination)",
+            "Singh TD. et al., Mayo Clin Proc 2015 (CPM review)",
+        ],
+    ),
+    TherapyTechnique(
+        id="radnecrosis_bevacizumab",
+        name="Bevacizumab (anti-VEGF) + surgical debulking",
+        disease_class=34,  # Radiation necrosis
+        mode="lesion_reversal",
+        target_mode="largest_region",
+        radius_mm=18.0,
+        dose=0.65,
+        sigma_mm=10.0,
+        rationale=(
+            "Radiation necrosis is treated with bevacizumab (anti-VEGF, reduces "
+            "vasogenic oedema and necrosis), hyperbaric oxygen, or surgical "
+            "resection for mass effect. The reversal field models anti-VEGF-"
+            "induced reduction of the necrotic lesion and surrounding oedema."
+        ),
+        expected_effect="40-60% lesion regression; significant oedema reduction.",
+        references=[
+            "Chao ST. et al., J Neurooncol 2015 (radiation necrosis)",
+            "Sundgren PC. et al., Radiology 2004 (radiation necrosis MRS)",
+        ],
+    ),
+    TherapyTechnique(
+        id="wernicke_thiamine",
+        name="Urgent intravenous thiamine replacement",
+        disease_class=35,  # Wernicke encephalopathy
+        mode="regeneration",
+        target_mode="centroid",
+        radius_mm=14.0,
+        dose=0.85,
+        sigma_mm=8.0,
+        rationale=(
+            "Wernicke encephalopathy is a medical emergency requiring prompt IV "
+            "thiamine (500mg TDS for 3-5 days, then oral maintenance) BEFORE "
+            "glucose. The regeneration field models rapid reversal of mammillary "
+            "body and thalamic signal abnormality. Delayed treatment leads to "
+            "Korsakoff syndrome."
+        ),
+        expected_effect="80-95% signal reversal if treated promptly; prevents Korsakoff.",
+        references=[
+            "Zuccoli G. et al., Radiology 2009 (Wernicke MRI)",
+            "Sechi G. et al., Lancet Neurol 2002 (Wernicke review)",
+        ],
+    ),
 ]
 
 

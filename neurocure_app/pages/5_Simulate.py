@@ -70,6 +70,20 @@ if recon is not None:
     cortex_mesh = cortex.meshes[0] if cortex and cortex.meshes else None
     tissue_meshes = list(recon["meshes"].meshes)
     lesion_mesh = next((m for m in tissue_meshes if m.label == "lesion"), None)
+    # Deep nuclei + impact zone for the cure simulation viewer.
+    try:
+        from brainframe.data.real_brain import load_deep_nuclei
+
+        deep_nuclei = load_deep_nuclei()
+    except Exception:
+        deep_nuclei = []
+    impact_zone = None
+    if lesion_mesh is not None and sess.recommendation:
+        impact_zone = {
+            "center": [0.0, 0.0, 0.0],
+            "radius": sess.recommendation.technique.radius_mm,
+            "color": 0x3FB950,
+        }
     render_three_brain(
         cortex_mesh=cortex_mesh,
         tissue_meshes=tissue_meshes,
@@ -79,6 +93,8 @@ if recon is not None:
         before_volume=float(before),
         after_volume=float(after),
         cure_timeline=sess.cure_timeline,
+        deep_nuclei=deep_nuclei,
+        impact_zone=impact_zone,
     )
 else:
     st.warning("Reconstruction not available; visit the 3D Brain page first.")

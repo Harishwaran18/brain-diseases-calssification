@@ -78,4 +78,17 @@ c1, c2 = st.columns(2)
 c1.metric("Total lesion volume", f"{lesion.get('total_lesion_volume_mm3', 0):.0f} mm³")
 c2.metric("Detected regions", lesion.get("n_regions", 0))
 
+st.markdown("---")
+st.markdown("### 🎯 Therapy impact zone")
+st.info(
+    f"The recommended technique acts on a **{tech.radius_mm} mm radius** sphere "
+    f"centered on the lesion centroid (target mode: **{tech.target_mode}**). "
+    f"Visit the 3D Brain page to see this impact zone visualised as a "
+    f"translucent green sphere overlaid on the cortex and deep brain nuclei."
+)
+c3, c4, c5 = st.columns(3)
+c3.metric("Target radius", f"{tech.radius_mm} mm")
+c4.metric("Dose intensity", f"{tech.dose:.0%}")
+c5.metric("Kernel σ", f"{tech.sigma_mm} mm")
+
 st.page_link("pages/5_Simulate.py", label="→ Next: Live Cure Simulation", icon="🎬")

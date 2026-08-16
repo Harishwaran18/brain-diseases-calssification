@@ -165,6 +165,8 @@ _THREE_TEMPLATE = r"""
     <button id="reset">↺ Reset view</button>
     <button id="autorotate" title="Auto-rotate">⟳ Spin</button>
     <button id="clip" title="Clip plane through the brain">✂ Clip</button>
+    <button id="deep" title="Toggle deep brain nuclei overlay" class="on">🧩 Deep</button>
+    <button id="impact" title="Toggle therapy impact zone" class="on">🎯 Zone</button>
     <button id="snap" title="Save a PNG snapshot">📷 Snapshot</button>
   </div>
   <div id="timeline">
@@ -303,8 +305,49 @@ try {
   // Tissue meshes.
   if(DATA.tissues) for(const t of DATA.tissues) makeMesh(t.mesh, t.color, t.opacity, 0.6, 0.0, t.flat);
 
-  // ---- Lesion mesh (phase-coloured, shrinks per cure phase, emissive glow) ----
+  // ---- Deep brain nuclei (thalamus, BG, ventricles, hippocampus, etc.) ----
+  // Semi-transparent overlays from the Harvard-Oxford subcortical atlas so the
+  // viewer shows multi-layered anatomy: cortex + deep structures.
   const RG = window.__nc3d;
+  RG.deepNucleiMeshes = [];
+  if(DATA.deepNuclei) for(const dn of DATA.deepNuclei){
+    const m = makeMesh(dn.mesh, dn.color, dn.opacity, 0.45, 0.0, false, false);
+    if(m){
+      m.userData.deepNucleus = dn.name;
+      RG.deepNucleiMeshes.push(m);
+    }
+  }
+  // Toggle button for deep nuclei overlay.
+  let deepNucleiOn = true;
+  RG.setDeepNucleiVisible = function(v){
+    deepNucleiOn = v;
+    for(const m of RG.deepNucleiMeshes) m.visible = v;
+  };
+
+  // ---- Therapy impact zone (translucent sphere showing treatment target) ----
+  RG.impactMesh = null;
+  if(DATA.impactZone && DATA.impactZone.center && DATA.impactZone.radius){
+    const iz = DATA.impactZone;
+    const igeom = new THREE.SphereGeometry(iz.radius, 32, 24);
+    igeom.translate(iz.center[0], iz.center[1], iz.center[2]);
+    const imat = new THREE.MeshPhysicalMaterial({
+      color: iz.color || 0x3fb950, metalness: 0.0, roughness: 0.2,
+      transparent: true, opacity: 0.18, side: THREE.DoubleSide,
+      depthWrite: false, transmission: 0.5, thickness: 1.0,
+      emissive: iz.color || 0x3fb950, emissiveIntensity: 0.25,
+      clippingPlanes: clipOn?[clipPlane]:[],
+    });
+    RG.impactMesh = new THREE.Mesh(igeom, imat);
+    scene.add(RG.impactMesh);
+    // Wireframe outer ring for clarity.
+    const wgeom = new THREE.SphereGeometry(iz.radius, 24, 16);
+    wgeom.translate(iz.center[0], iz.center[1], iz.center[2]);
+    const wmat = new THREE.MeshBasicMaterial({color: iz.color || 0x3fb950, wireframe: true, transparent: true, opacity: 0.25, depthWrite: false});
+    RG.impactWire = new THREE.Mesh(wgeom, wmat);
+    scene.add(RG.impactWire);
+  }
+
+  // ---- Lesion mesh (phase-coloured, shrinks per cure phase, emissive glow) ----
   RG.lesionMesh=null; RG.lesionGeom=null;
   if(DATA.lesion && DATA.lesion.positions && DATA.lesion.positions.length){
     RG.lesionGeom = new THREE.BufferGeometry();
@@ -489,10 +532,14 @@ try {
   if(legendEl){
     const items = [
       {c:'#c98a4b', n:'Cortex'},
-      {c:'#9A7AD0', n:'Gray matter'},
-      {c:'#F0E6D2', n:'White matter'},
-      {c:'#3A5A8A', n:'CSF'},
+      {c:'#E8A040', n:'Thalamus'},
+      {c:'#C064E8', n:'Caudate'},
+      {c:'#6496E8', n:'Putamen'},
+      {c:'#6BC97B', n:'Hippocampus'},
+      {c:'#40C0E8', n:'Ventricles'},
+      {c:'#A0886E', n:'Brainstem'},
       {c:'#ff2b4a', n:'Lesion'},
+      {c:'#3fb950', n:'Impact zone'},
       {c:'#3fb950', n:'Regeneration'},
     ];
     legendEl.innerHTML = items.map(i=>`<div class="lgrow"><span class="swatch" style="background:${i.c}"></span>${i.n}</div>`).join('');
@@ -510,6 +557,18 @@ try {
     clipBtn.classList.toggle('on',clipOn);
   };
   if(snapBtn) snapBtn.onclick = ()=>{ try{ renderer.render(scene,camera); const url=renderer.domElement.toDataURL('image/png'); const a=document.createElement('a'); a.href=url; a.download='neurocure_brain.png'; a.click(); }catch(e){} };
+
+  // Deep nuclei toggle + impact zone toggle.
+  const deepBtn = document.getElementById('deep');
+  if(deepBtn) deepBtn.onclick = ()=>{
+    const v = !deepNucleiOn;
+    RG.setDeepNucleiVisible(v);
+    deepBtn.classList.toggle('on', v);
+  };
+  const impactBtn = document.getElementById('impact');
+  if(impactBtn) impactBtn.onclick = ()=>{
+    if(RG.impactMesh){ RG.impactMesh.visible = !RG.impactMesh.visible; RG.impactWire.visible = RG.impactMesh.visible; impactBtn.classList.toggle('on', RG.impactMesh.visible); }
+  };
 
   // Expose a reset that also restores home view (the cure-UI reset button calls applyFrame(0);
   // the Reset-view button here restores the camera).
@@ -810,6 +869,8 @@ def render_three_brain(
     after_volume: float = 0.0,
     *,
     cure_timeline: dict | None = None,
+    deep_nuclei: list[MeshData] | None = None,
+    impact_zone: dict | None = None,
     height: int = 640,
     decimate_cortex_to: int = 20000,
 ) -> None:
@@ -833,6 +894,12 @@ def render_three_brain(
         cascade. When provided, the lesion is coloured per phase, a
         regeneration mesh grows into the cavity, an oedema halo fades, and a
         neuroprotective shield appears — all driven by the phase parameters.
+    deep_nuclei
+        Optional list of deep-brain-nucleus meshes (thalamus, BG, ventricles,
+        etc.) rendered as semi-transparent overlays for multi-layered anatomy.
+    impact_zone
+        Optional dict ``{"center": [x,y,z], "radius": r, "color": 0xRRGGBB}``
+        showing the therapy's treatment target as a translucent sphere.
     """
     data: dict[str, Any] = {}
 
@@ -886,6 +953,51 @@ def render_three_brain(
             )
     if tissues:
         data["tissues"] = tissues
+
+    # Deep brain nuclei overlays (thalamus, BG, ventricles, hippocampus, etc.)
+    # Recenter using the cortex offset so they align with the recentered cortex.
+    if deep_nuclei:
+        from brainframe.data.real_brain import deep_nuclei_style
+
+        # Compute the cortex centroid offset (same one applied above).
+        cortex_offset = None
+        if cortex_mesh is not None and len(cortex_mesh.vertices) > 0:
+            cortex_offset = np.asarray(cortex_mesh.vertices, dtype=np.float32).mean(axis=0)
+
+        dn_list = []
+        for m in deep_nuclei:
+            if m is None or len(m.vertices) == 0:
+                continue
+            color, opacity = deep_nuclei_style(m.label)
+            # Apply the same recentering offset as the cortex for alignment.
+            m_recentered = MeshData(
+                label=m.label,
+                label_idx=m.label_idx,
+                vertices=(np.asarray(m.vertices, dtype=np.float32) - cortex_offset)
+                if cortex_offset is not None
+                else np.asarray(m.vertices, dtype=np.float32),
+                faces=m.faces,
+                normals=m.normals,
+                spacing=m.spacing,
+            )
+            dn_list.append(
+                {
+                    "name": m.label,
+                    "mesh": _mesh_to_json(m_recentered, decimate_to=3000),
+                    "color": color,
+                    "opacity": opacity,
+                }
+            )
+        if dn_list:
+            data["deepNuclei"] = dn_list
+
+    # Therapy impact zone (translucent sphere at the treatment target).
+    if impact_zone and impact_zone.get("center") and impact_zone.get("radius"):
+        data["impactZone"] = {
+            "center": [float(c) for c in impact_zone["center"]],
+            "radius": float(impact_zone["radius"]),
+            "color": impact_zone.get("color", 0x3FB950),
+        }
 
     # Lesion mesh + cure animation frames.
     lesion_json: dict | None = None
