@@ -3,9 +3,16 @@
 Replaces the Plotly 3D renderer with a genuine WebGL scene built on Three.js
 (the international standard for in-browser 3D visualisation, used by
 BrainBrowser and the Allen Brain Atlas). The full-resolution fsaverage pial
-cortex is rendered with PBR (physically-based) materials, multi-light shading,
-and per-vertex normals so the real gyri/sulci are crisp and anatomically
-lifelike. OrbitControls let the user rotate/zoom/pan the brain freely.
+cortex is rendered with PBR (physically-based) materials lit by a procedural
+image-based environment (RoomEnvironment + PMREM), ACES Filmic tone mapping,
+hemisphere + key/rim/fill lighting, and per-vertex normals so the real
+gyri/sulci are crisp and anatomically lifelike. An UnrealBloom pass makes the
+emissive lesion glow during the cure cascade (gracefully disabled on WebGL1).
+
+Interactions: OrbitControls (rotate/zoom/pan), auto-rotate, a clipping plane
+to slice the brain open and reveal the internal lesion, a PNG snapshot button,
+an anatomical orientation gizmo (L/R/A/P/S/I), a tissue legend, and a
+ResizeObserver so the view resizes correctly inside the Streamlit iframe.
 
 The cure animation shrinks the lesion mesh toward its centroid over time while
 an on-canvas overlay names the disease being treated and the curing technique
@@ -122,9 +129,10 @@ _THREE_TEMPLATE = r"""
   #overlay .meta{color:#8b949e;font-size:12px;margin-top:8px}
   #hud{position:absolute;top:14px;right:14px;color:#8b949e;font-size:11px;text-align:right;z-index:5}
   #err{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#8b949e;font-size:12px;display:none;z-index:6;text-align:center;background:rgba(13,17,23,.85);border:1px solid #30363d;border-radius:8px;padding:10px 16px;max-width:70%}
-  #ctrl{position:absolute;bottom:60px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:5}
-  #ctrl button{background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:8px;padding:8px 18px;font-size:13px;cursor:pointer}
+  #ctrl{position:absolute;bottom:60px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:5;flex-wrap:wrap;justify-content:center;max-width:90%}
+  #ctrl button{background:#161b22;color:#e6edf3;border:1px solid #30363d;border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer;transition:border-color .15s,background .15s}
   #ctrl button:hover{border-color:#3aa6e6}
+  #ctrl button.on{background:#1f2d3a;border-color:#3aa6e6;color:#3aa6e6}
   #timeline{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);width:78%;z-index:5}
   #timeline .tlbar{height:10px;background:#161b22;border:1px solid #30363d;border-radius:6px;overflow:hidden;display:flex}
   #timeline .tlseg{height:100%;opacity:.55;transition:opacity .2s}
@@ -132,6 +140,10 @@ _THREE_TEMPLATE = r"""
   #timeline .tlhead{display:flex;justify-content:space-between;color:#8b949e;font-size:10px;margin-bottom:3px}
   #timeline .tllabels{display:flex;color:#8b949e;font-size:9px;margin-top:3px;gap:2px}
   #timeline .tllabels span{flex:1;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #gizmo{position:absolute;bottom:14px;right:14px;width:84px;height:84px;z-index:5;pointer-events:none}
+  #legend{position:absolute;top:14px;left:14px;transform:translateY(220px);color:#c9d1d9;background:rgba(13,17,23,.78);border:1px solid #30363d;border-radius:8px;padding:8px 12px;font-size:11px;z-index:5;max-width:180px}
+  #legend .lgrow{display:flex;align-items:center;gap:6px;margin:3px 0}
+  #legend .swatch{width:12px;height:12px;border-radius:3px;border:1px solid #30363d}
 </style>
 </head>
 <body>
@@ -145,14 +157,22 @@ _THREE_TEMPLATE = r"""
     <div class="desc" id="ds"></div>
     <div class="meta" id="mv"></div>
   </div>
+  <div id="legend"></div>
   <div id="hud">drag: rotate &middot; scroll: zoom &middot; right-drag: pan</div>
   <div id="err"></div>
-  <div id="ctrl"><button id="play">▶ Play cure</button><button id="reset">↺ Reset view</button></div>
+  <div id="ctrl">
+    <button id="play">▶ Play cure</button>
+    <button id="reset">↺ Reset view</button>
+    <button id="autorotate" title="Auto-rotate">⟳ Spin</button>
+    <button id="clip" title="Clip plane through the brain">✂ Clip</button>
+    <button id="snap" title="Save a PNG snapshot">📷 Snapshot</button>
+  </div>
   <div id="timeline">
     <div class="tlhead"><span id="tlleft">Before</span><span id="tlright">Cured</span></div>
     <div class="tlbar" id="tlbar"></div>
     <div class="tllabels" id="tllabels"></div>
   </div>
+  <canvas id="gizmo"></canvas>
 </div>
 <script type="importmap">
 { "imports": {
@@ -176,6 +196,11 @@ window.__nc3d = { lesionMesh:null, lesionGeom:null, regenMesh:null, regenGeom:nu
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 // Cure data is exposed on `window` by a preceding plain <script> so this
 // module AND the cure UI script below can both read it without duplicating
@@ -204,21 +229,40 @@ try {
 
   const w = app.clientWidth || 800, h = app.clientHeight || 620;
   const camera = new THREE.PerspectiveCamera(45, w/h, 0.1, 2000);
-  const renderer = new THREE.WebGLRenderer({antialias:true});
+
+  // ---- Renderer: physically-based, tone-mapped, colour-managed ----
+  const renderer = new THREE.WebGLRenderer({antialias:true, alpha:false, powerPreference:'high-performance'});
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(w, h);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  // ACES Filmic tone mapping gives cinematic, film-like contrast that keeps
+  // highlight detail in the bright cortical surface and the emissive lesion.
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
   app.appendChild(renderer.domElement);
 
-  // Multi-light setup: ambient + key + rim + fill for depth cueing of gyri/sulci.
-  scene.add(new THREE.AmbientLight(0xffffff, 0.45));
-  const key = new THREE.DirectionalLight(0xfff2e0, 1.15); key.position.set(120, 200, 180); scene.add(key);
-  const rim = new THREE.DirectionalLight(0xb8d4ff, 0.6);  rim.position.set(-160, -80, -140); scene.add(rim);
-  const fill = new THREE.PointLight(0xffe0b0, 0.35, 600); fill.position.set(0, -150, 120); scene.add(fill);
+  // ---- Image-based lighting: procedural studio environment (no network) ----
+  // PMREM-processed RoomEnvironment gives every PBR material realistic
+  // specular reflections so the gyri/sulci catch the light like real tissue.
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+  // ---- Lighting: hemisphere (sky/ground) + key + rim + fill ----
+  // Hemisphere light replaces flat ambient for natural sky/ground gradient.
+  scene.add(new THREE.HemisphereLight(0xddeeff, 0x202830, 0.55));
+  const key = new THREE.DirectionalLight(0xfff2e0, 1.5); key.position.set(120, 200, 180); scene.add(key);
+  const rim = new THREE.DirectionalLight(0xb8d4ff, 0.85); rim.position.set(-160, -80, -140); scene.add(rim);
+  const fill = new THREE.PointLight(0xffe0b0, 0.45, 800); fill.position.set(0, -150, 120); scene.add(fill);
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true; controls.dampingFactor = 0.08;
   controls.minDistance = 40; controls.maxDistance = 600;
+
+  // Shared clipping plane (toggled by the ✂ Clip button) to slice the brain
+  // open and reveal the internal lesion — a core neuroimaging interaction.
+  const clipPlane = new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0);
+  let clipOn = false;
+  renderer.localClippingEnabled = true;
 
   function makeMesh(m, color, opacity, roughness, metalness, flat){
     if(!m || !m.positions || m.positions.length===0) return null;
@@ -227,7 +271,7 @@ try {
     if(m.normals && m.normals.length===m.positions.length) geom.setAttribute('normal', new THREE.Float32BufferAttribute(m.normals, 3));
     else geom.computeVertexNormals();
     geom.setIndex(m.indices);
-    const mat = new THREE.MeshStandardMaterial({color, metalness, roughness, flatShading: !!flat, transparent: opacity<1.0, opacity, side: THREE.DoubleSide});
+    const mat = new THREE.MeshStandardMaterial({color, metalness, roughness, flatShading: !!flat, transparent: opacity<1.0, opacity, side: THREE.DoubleSide, envMapIntensity:0.7, clippingPlanes: clipOn?[clipPlane]:[]});
     const mesh = new THREE.Mesh(geom, mat);
     scene.add(mesh);
     return mesh;
@@ -235,12 +279,12 @@ try {
 
   // Cortex (left/right hemispheres subtly tinted) — the realistic brain backdrop.
   let leftMesh=null, rightMesh=null;
-  if(DATA.cortexLeft)  leftMesh  = makeMesh(DATA.cortexLeft,  0xc98a4b, 1.0, 0.55, 0.05, false);
-  if(DATA.cortexRight) rightMesh = makeMesh(DATA.cortexRight, 0xc0793a, 1.0, 0.55, 0.05, false);
+  if(DATA.cortexLeft)  leftMesh  = makeMesh(DATA.cortexLeft,  0xc98a4b, 1.0, 0.45, 0.06, false);
+  if(DATA.cortexRight) rightMesh = makeMesh(DATA.cortexRight, 0xc0793a, 1.0, 0.45, 0.06, false);
   // Tissue meshes.
-  if(DATA.tissues) for(const t of DATA.tissues) makeMesh(t.mesh, t.color, t.opacity, 0.7, 0.0, t.flat);
+  if(DATA.tissues) for(const t of DATA.tissues) makeMesh(t.mesh, t.color, t.opacity, 0.6, 0.0, t.flat);
 
-  // ---- Lesion mesh (phase-coloured, shrinks per cure phase) ----
+  // ---- Lesion mesh (phase-coloured, shrinks per cure phase, emissive glow) ----
   const RG = window.__nc3d;
   RG.lesionMesh=null; RG.lesionGeom=null;
   if(DATA.lesion && DATA.lesion.positions && DATA.lesion.positions.length){
@@ -249,7 +293,8 @@ try {
     if(DATA.lesion.normals) RG.lesionGeom.setAttribute('normal', new THREE.Float32BufferAttribute(DATA.lesion.normals, 3));
     else RG.lesionGeom.computeVertexNormals();
     RG.lesionGeom.setIndex(DATA.lesion.indices);
-    const lmat = new THREE.MeshStandardMaterial({color:0xff2b4a, metalness:0.1, roughness:0.4, flatShading:true, transparent:true, opacity:0.95, emissive:0x550011, emissiveIntensity:0.35});
+    // Strong emissive so the lesion glows and picks up the bloom pass during cure.
+    const lmat = new THREE.MeshStandardMaterial({color:0xff2b4a, metalness:0.1, roughness:0.35, flatShading:true, transparent:true, opacity:0.95, emissive:0xff1133, emissiveIntensity:0.6, envMapIntensity:0.4, clippingPlanes: clipOn?[clipPlane]:[]});
     RG.lesionMesh = new THREE.Mesh(RG.lesionGeom, lmat);
     scene.add(RG.lesionMesh);
   }
@@ -261,7 +306,7 @@ try {
     RG.regenGeom.setAttribute('position', new THREE.Float32BufferAttribute(DATA.regenFrames[0], 3));
     RG.regenGeom.setIndex(DATA.lesion.indices);
     RG.regenGeom.computeVertexNormals();
-    const rmat = new THREE.MeshStandardMaterial({color:0x3fb950, metalness:0.05, roughness:0.5, flatShading:false, transparent:true, opacity:0.0, emissive:0x0a3318, emissiveIntensity:0.4});
+    const rmat = new THREE.MeshStandardMaterial({color:0x3fb950, metalness:0.05, roughness:0.5, flatShading:false, transparent:true, opacity:0.0, emissive:0x0a3318, emissiveIntensity:0.5, envMapIntensity:0.6, clippingPlanes: clipOn?[clipPlane]:[]});
     RG.regenMesh = new THREE.Mesh(RG.regenGeom, rmat);
     scene.add(RG.regenMesh);
   }
@@ -299,15 +344,123 @@ try {
     scene.add(RG.protectMesh);
   }
 
-  // Frame the camera on the whole scene.
+  // Frame the camera on the whole scene; store the home view for Reset.
   const box = new THREE.Box3().setFromObject(scene);
+  let homePos = camera.position.clone(), homeTarget = controls.target.clone();
   if(!box.isEmpty()){ const c=box.getCenter(new THREE.Vector3()), s=box.getSize(new THREE.Vector3());
     const maxDim=Math.max(s.x,s.y,s.z); camera.position.set(c.x+maxDim*0.9, c.y+maxDim*0.7, c.z+maxDim*1.3); controls.target.copy(c);
+    homePos = camera.position.clone(); homeTarget = c.clone();
+    // Position the clip plane through the scene centre.
+    clipPlane.constant = c.x; clipPlane.normal.set(-1,0,0);
   }
 
-  function animate(){ requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
+  // ---- Post-processing: bloom on the emissive lesion during the cure ----
+  // EffectComposer needs WebGL2; gracefully fall back to the plain renderer
+  // (still tone-mapped + environment-lit) on older contexts.
+  let composer = null, useComposer = false;
+  try {
+    if (renderer.capabilities.isWebGL2) {
+      composer = new EffectComposer(renderer);
+      composer.addPass(new RenderPass(scene, camera));
+      const bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.62, 0.6, 0.18);
+      composer.addPass(bloom);
+      composer.addPass(new OutputPass());
+      useComposer = true;
+    }
+  } catch(e){ console.warn('Bloom unavailable, using plain render:', e); useComposer = false; }
+
+  // ---- Orientation gizmo (anatomical L/R/A/P/S/I) drawn in a corner canvas ----
+  const gizCanvas = document.getElementById('gizmo');
+  let gizCtx = null;
+  if(gizCanvas){ gizCanvas.width=168; gizCanvas.height=168; gizCtx = gizCanvas.getContext('2d'); }
+  function drawGizmo(){
+    if(!gizCtx) return;
+    const W=168,H=168,cx=W/2,cy=H/2;
+    gizCtx.clearRect(0,0,W,H);
+    // Project the world axes through the camera quaternion to find screen directions.
+    const q = camera.quaternion;
+    const axes = [
+      {dir:new THREE.Vector3(1,0,0),  label:'R', color:'#f85149'},   // +x = Right
+      {dir:new THREE.Vector3(-1,0,0), label:'L', color:'#3fb950'},   // -x = Left
+      {dir:new THREE.Vector3(0,1,0),  label:'A', color:'#d29922'},   // +y = Anterior
+      {dir:new THREE.Vector3(0,-1,0), label:'P', color:'#a371f7'},   // -y = Posterior
+      {dir:new THREE.Vector3(0,0,1),  label:'S', color:'#3aa6e6'},   // +z = Superior
+      {dir:new THREE.Vector3(0,0,-1), label:'I', color:'#8b949e'},   // -z = Inferior
+    ];
+    // Rotate world-axis by inverse of camera quaternion to get view-space dir.
+    const inv = q.clone().invert();
+    const proj = axes.map(a => {
+      const v = a.dir.clone().applyQuaternion(inv);
+      return {...a, x: cx + v.x*52, y: cy - v.y*52, z: v.z};
+    });
+    // Draw back-to-front (negative z first).
+    proj.sort((a,b)=>a.z-b.z);
+    gizCtx.font='bold 15px system-ui'; gizCtx.textAlign='center'; gizCtx.textBaseline='middle';
+    for(const a of proj){
+      gizCtx.strokeStyle=a.color; gizCtx.lineWidth=2;
+      gizCtx.beginPath(); gizCtx.moveTo(cx,cy); gizCtx.lineTo(a.x,a.y); gizCtx.stroke();
+      gizCtx.fillStyle=a.color; gizCtx.beginPath(); gizCtx.arc(a.x,a.y,9,0,Math.PI*2); gizCtx.fill();
+      gizCtx.fillStyle='#fff';
+      gizCtx.fillText(a.label, a.x, a.y+0.5);
+    }
+    gizCtx.fillStyle='#e6edf3'; gizCtx.beginPath(); gizCtx.arc(cx,cy,4,0,Math.PI*2); gizCtx.fill();
+  }
+
+  // ---- Tissue legend (compact, in the overlay area) ----
+  const legendEl = document.getElementById('legend');
+  if(legendEl){
+    const items = [
+      {c:'#c98a4b', n:'Cortex'},
+      {c:'#9A7AD0', n:'Gray matter'},
+      {c:'#F0E6D2', n:'White matter'},
+      {c:'#3A5A8A', n:'CSF'},
+      {c:'#ff2b4a', n:'Lesion'},
+      {c:'#3fb950', n:'Regeneration'},
+    ];
+    legendEl.innerHTML = items.map(i=>`<div class="lgrow"><span class="swatch" style="background:${i.c}"></span>${i.n}</div>`).join('');
+  }
+
+  // ---- Control buttons (plain-script-safe: stored on window.__nc3d) ----
+  const autoBtn = document.getElementById('autorotate');
+  const clipBtn = document.getElementById('clip');
+  const snapBtn = document.getElementById('snap');
+  let autoRotate = false;
+  if(autoBtn) autoBtn.onclick = ()=>{ autoRotate=!autoRotate; controls.autoRotate=autoRotate; controls.autoRotateSpeed=1.2; autoBtn.classList.toggle('on',autoRotate); };
+  if(clipBtn) clipBtn.onclick = ()=>{ clipOn=!clipOn;
+    // Apply clipping planes to every material in the scene.
+    scene.traverse(o=>{ if(o.isMesh && o.material){ const m=o.material; m.clippingPlanes = clipOn?[clipPlane]:[]; m.needsUpdate=true; if(o.material.length){o.material.forEach(mm=>{mm.clippingPlanes=clipOn?[clipPlane]:[]; mm.needsUpdate=true;});} } });
+    clipBtn.classList.toggle('on',clipOn);
+  };
+  if(snapBtn) snapBtn.onclick = ()=>{ try{ renderer.render(scene,camera); const url=renderer.domElement.toDataURL('image/png'); const a=document.createElement('a'); a.href=url; a.download='neurocure_brain.png'; a.click(); }catch(e){} };
+
+  // Expose a reset that also restores home view (the cure-UI reset button calls applyFrame(0);
+  // the Reset-view button here restores the camera).
+  const resetBtn = document.getElementById('reset');
+  function resetCamera(){ camera.position.copy(homePos); controls.target.copy(homeTarget); controls.update(); }
+  if(resetBtn) resetBtn.onclick = resetCamera;
+  // Allow the cure-UI plain script's Reset button to also restore the camera.
+  window.__nc3d.resetCamera = resetCamera;
+
+  // ---- Animation loop: bloom composer + gizmo + lesion pulse during cure ----
+  let t0 = performance.now();
+  function animate(){ requestAnimationFrame(animate);
+    controls.update();
+    // Pulse the lesion emissive while the cure is playing for a "live" glow.
+    if(RG.lesionMesh){
+      const t = (performance.now()-t0)/1000;
+      const pulse = 0.5 + 0.25*Math.sin(t*4.0);
+      RG.lesionMesh.material.emissiveIntensity = 0.45 + pulse*0.35;
+    }
+    if(useComposer && composer) composer.render(); else renderer.render(scene, camera);
+    drawGizmo();
+  }
   animate();
-  window.addEventListener('resize', ()=>{ const W=app.clientWidth, H=app.clientHeight; camera.aspect=W/H; camera.updateProjectionMatrix(); renderer.setSize(W,H); });
+
+  // ---- Resize: ResizeObserver (iframe-friendly) + window fallback ----
+  function doResize(){ const W=app.clientWidth||800, H=app.clientHeight||620; camera.aspect=W/H; camera.updateProjectionMatrix(); renderer.setSize(W,H); if(composer) composer.setSize(W,H); }
+  if(typeof ResizeObserver !== 'undefined'){ const ro=new ResizeObserver(doResize); ro.observe(app); }
+  else window.addEventListener('resize', doResize);
+
   // WebGL init succeeded: tell the cure-UI script it can drive the 3D meshes.
   window.__nc3d.ok = true;
 
@@ -468,7 +621,7 @@ function applyFrame(f){
 applyFrame(0);
 
 playBtn.onclick=()=>{ if(!HAS_CURE){ playBtn.textContent='No cure data'; return; } playing=!playing; playBtn.textContent=playing?'⏸ Pause':'▶ Play cure'; if(playing){frame=0; lastT=performance.now();} };
-resetBtn.onclick=()=>{ frame=0; playing=false; playBtn.textContent='▶ Play cure'; applyFrame(0); };
+resetBtn.onclick=()=>{ frame=0; playing=false; playBtn.textContent='▶ Play cure'; applyFrame(0); if(window.__nc3d && window.__nc3d.resetCamera) window.__nc3d.resetCamera(); };
 function loop(t){ requestAnimationFrame(loop);
   // Show the 2D fallback once it's clear the Three.js module didn't init WebGL
   // (the deferred module has run by the first rAF tick; if ok is still false,

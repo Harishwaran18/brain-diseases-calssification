@@ -151,3 +151,35 @@ simulator + compatibility score). Canonical label index in `brainframe.config.LA
   throw TypeErrors mid-`applyFrame`. The overlay element ids are `dv,tv,pv,mc,ds,mv`
   (NOT the class names `disease/technique/phase/mechanism/desc/meta`). To read the live
   iframe DOM, use `browser_get_content` (extracts JS-mutated HTML) — NOT `browser_get_state`.
+
+## Statistical evaluation module — added 2026-08
+- `brainframe/classification/stats.py`: classical stats for the trained MLP.
+  Functions: `f_test()` (one-way ANOVA per feature), `confusion_matrix()` (manual, no sklearn),
+  `chi_square_independence()`, `chi_square_goodness_of_fit()`, `evaluate_classifier()` (StatsReport),
+  `evaluate_trained_mlp()` (convenience entry: generates eval set + runs trained MLP).
+  Dataclasses: FTestResult, ChiSquareResult, ConfusionMatrix, StatsReport.
+- IMPORTANT: `_FEATURE_NAMES` and `_decode_categorical` are built from the live
+  `diseases.PATTERNS/LATERALITIES/REGIONS` vocabularies (NOT hardcoded), so they stay in sync
+  with `_FEATURE_DIM = 2 + 5 + 4 + 18 = 29`. Hardcoding region names caused a length mismatch
+  (23 names vs 29 features) — keep using the live vocab.
+- `neurocure_app/pages/7_Model_Evaluation.py`: Streamlit page rendering all 3 techniques with
+  sliders (n_per_class, seed, alpha). Results cached in `st.session_state["stats_report"]`.
+- `neurocure_app/components/charts.py`: `confusion_matrix_chart()`, `f_test_chart()`,
+  `chi_square_chart()`. GOTCHA: `_THEME` dict contains a `margin` key, so when calling
+  `fig.update_layout()` you must pop `margin` from a copy of `_THEME` before spreading it, else
+  "got multiple values for keyword argument 'margin'".
+
+## Three.js 3D viewer upgrades — added 2026-08
+- `neurocure_app/components/three_viewer.py`: PBR rendering with ACESFilmic tone mapping,
+  RoomEnvironment via PMREMGenerator, hemisphere light, UnrealBloomPass, clipping plane,
+  auto-rotate toggle, PNG snapshot (toBlob -> Streamlit download_button), orientation
+  gizmo (AxesHelper), ResizeObserver. Importmap pulls three + addons from unpkg.
+  Reset button handles both cure-animation reset AND camera reset.
+  Controls: Play cure / Reset / Spin / Clip / Snapshot.
+
+## Verified end-to-end (2026-08-10)
+- 119 tests pass (incl. 12 in tests/test_stats.py). Lint clean (ruff). mypy numpy-stub
+  error is pre-existing environment issue (numpy 2.5 stubs vs py3.10 target), not our code.
+- Live browser check: Model Evaluation page -> 473 samples, 21 classes, 83.3% accuracy,
+  28/29 F-test features significant, chi-square confirms feature dependence. 3D Brain
+  page -> all 5 control buttons render + Spin/Clip/Snapshot/Cure all work without errors.

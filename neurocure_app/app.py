@@ -85,6 +85,7 @@ def main() -> None:
     st.sidebar.page_link("pages/4_Therapy.py", label="4. Therapy Recommendation", icon="💊")
     st.sidebar.page_link("pages/5_Simulate.py", label="5. Live Cure Simulation", icon="🎬")
     st.sidebar.page_link("pages/6_Report.py", label="6. Download Report", icon="📄")
+    st.sidebar.page_link("pages/7_Model_Evaluation.py", label="7. Statistical Evaluation", icon="📊")
 
 
 main()
