@@ -44,6 +44,7 @@ class ConfusionMatrix:
     f1: list[float] = field(default_factory=list)
     support: list[int] = field(default_factory=list)
     specificity: list[float] = field(default_factory=list)
+    npv: list[float] = field(default_factory=list)
     accuracy: float = 0.0
     # Aggregate (single-number) summaries.
     macro_precision: float = 0.0
@@ -66,6 +67,7 @@ class ConfusionMatrix:
             "f1": self.f1,
             "support": self.support,
             "specificity": self.specificity,
+            "npv": self.npv,
             "accuracy": self.accuracy,
             "macro_precision": self.macro_precision,
             "macro_recall": self.macro_recall,
@@ -265,6 +267,7 @@ def confusion_matrix(
     recall: list[float] = []
     f1: list[float] = []
     specificity: list[float] = []
+    npv: list[float] = []
     support: list[int] = []
     for i in range(n):
         tp = int(mat[i, i])
@@ -276,10 +279,12 @@ def confusion_matrix(
         rec = tp / (tp + fn) if (tp + fn) > 0 else 0.0
         f = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0.0
         spec = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+        neg_pred = tn / (tn + fn) if (tn + fn) > 0 else 0.0
         precision.append(float(prec))
         recall.append(float(rec))
         f1.append(float(f))
         specificity.append(float(spec))
+        npv.append(float(neg_pred))
         support.append(sup)
     acc = float((y_true == y_pred).mean()) if len(y_true) else 0.0
     total = int(mat.sum()) or 1
@@ -303,7 +308,7 @@ def confusion_matrix(
     mcc = _multiclass_mcc(mat)
     return ConfusionMatrix(
         matrix=mat, class_names=names, precision=precision, recall=recall,
-        f1=f1, support=support, specificity=specificity, accuracy=acc,
+        f1=f1, support=support, specificity=specificity, npv=npv, accuracy=acc,
         macro_precision=macro_prec, macro_recall=macro_rec, macro_f1=macro_f1,
         weighted_precision=w_prec, weighted_recall=w_rec, weighted_f1=w_f1,
         macro_specificity=macro_spec, balanced_accuracy=balanced,
@@ -623,13 +628,15 @@ def multiclass_brier_score(
 
 # Human-readable names for the MLP feature vector (matches _encode_features).
 # Built from the live taxonomy vocabularies so it stays in sync with
-# ``_FEATURE_DIM = 2 + len(PATTERNS) + len(LATERALITIES) + len(REGIONS)``.
+# ``_FEATURE_DIM = 4 + len(PATTERNS) + len(LATERALITIES) + len(REGIONS)``.
 def _build_feature_names() -> list[str]:
     from brainframe.classification.diseases import LATERALITIES, PATTERNS, REGIONS
 
     return [
         "log(volume)",
         "n_regions",
+        "lesion_density",
+        "is_bilateral",
         *(f"pattern:{p}" for p in PATTERNS),
         *(f"laterality:{lat}" for lat in LATERALITIES),
         *(f"region:{r}" for r in REGIONS),
@@ -722,7 +729,8 @@ def _decode_categorical(X: np.ndarray) -> dict[str, np.ndarray]:
     vector back into categorical labels for the chi-square test.
 
     The layout matches :func:`brainframe.classification.trained_model._encode_features`:
-    ``[log(vol), n_regions, pattern*5, laterality*4, region*12]``.
+    ``[log(vol), n_regions, lesion_density, is_bilateral, pattern*5,
+    laterality*4, region*18]``.
     """
     X = np.asarray(X, dtype=np.float64)
     if X.ndim == 1:
@@ -731,21 +739,21 @@ def _decode_categorical(X: np.ndarray) -> dict[str, np.ndarray]:
     out: dict[str, np.ndarray] = {}
     from brainframe.classification.diseases import LATERALITIES, PATTERNS, REGIONS
 
+    # First 4 features are scalar (log_vol, n_regions, density, is_bilateral).
+    head = 4
     p_names = PATTERNS
-    if n >= 2 + len(p_names):
-        block = X[:, 2:2 + len(p_names)]
+    if n >= head + len(p_names):
+        block = X[:, head:head + len(p_names)]
         out["pattern"] = np.array([
             p_names[int(np.argmax(row))] if row.sum() > 0 else "unknown" for row in block
         ])
-    # laterality block: columns 2+len(PATTERNS) .. +len(LATERALITIES)
     l_names = LATERALITIES
-    l_off = 2 + len(p_names)
+    l_off = head + len(p_names)
     if n >= l_off + len(l_names):
         block = X[:, l_off:l_off + len(l_names)]
         out["laterality"] = np.array([
             l_names[int(np.argmax(row))] if row.sum() > 0 else "unknown" for row in block
         ])
-    # region block: columns l_off+len(LATERALITIES) .. end
     r_names = REGIONS
     r_off = l_off + len(l_names)
     r_end = min(n, r_off + len(r_names))
@@ -759,12 +767,14 @@ def _decode_categorical(X: np.ndarray) -> dict[str, np.ndarray]:
 
 def evaluate_trained_mlp(n_per_class: int = 200, seed: int = 42, alpha: float = 0.05) -> StatsReport:
     """Convenience: generate the signature-derived eval set, run the trained MLP
-    on it, and return the full :class:`StatsReport`.
+    ensemble on it, and return the full :class:`StatsReport`.
 
     This is the entry point used by the Model Evaluation page and the CLI.
     """
     import torch
+    import torch.nn.functional as F
 
+    from brainframe.classification.diseases import num_classes
     from brainframe.classification.trained_model import (
         _DEFAULT_WEIGHTS,
         _FEATURE_DIM,
@@ -780,12 +790,27 @@ def evaluate_trained_mlp(n_per_class: int = 200, seed: int = 42, alpha: float = 
     if not _DEFAULT_WEIGHTS.exists():
         from scripts.train_disease_classifier import train
 
-        train(epochs=300, n_per_class=600, seed=42)
-    model = DiseaseMLP(_FEATURE_DIM)
-    model.load_state_dict(torch.load(_DEFAULT_WEIGHTS, map_location="cpu", weights_only=True))
-    model.eval()
+        train(epochs=400, n_per_class=800, seed=42)
+
+    state = torch.load(_DEFAULT_WEIGHTS, map_location="cpu", weights_only=True)
+    va_Xt = torch.from_numpy(va_X)
+    n_classes = num_classes()
     with torch.no_grad():
-        logits = model(torch.from_numpy(va_X))
-        y_proba = torch.softmax(logits, dim=1).numpy()
+        if isinstance(state, dict) and "ensemble" in state:
+            # Ensemble: average softmax across all members.
+            probs_sum = torch.zeros(len(va_X), n_classes)
+            for member_state in state["ensemble"]:
+                m = DiseaseMLP(_FEATURE_DIM, n_classes)
+                m.load_state_dict(member_state)
+                m.eval()
+                probs_sum += F.softmax(m(va_Xt), dim=1)
+            y_proba = (probs_sum / len(state["ensemble"])).numpy()
+        else:
+            # Legacy single-model checkpoint.
+            model = DiseaseMLP(_FEATURE_DIM, n_classes)
+            model.load_state_dict(state)
+            model.eval()
+            logits = model(va_Xt)
+            y_proba = torch.softmax(logits, dim=1).numpy()
     y_pred = y_proba.argmax(1)
     return evaluate_classifier(va_X, va_y, y_pred, y_proba=y_proba, alpha=alpha)

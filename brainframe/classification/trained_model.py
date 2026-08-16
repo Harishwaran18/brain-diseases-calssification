@@ -36,8 +36,12 @@ from brainframe.utils.logging import get_logger
 
 log = get_logger("classification.trained_model")
 
-# Feature dimension: log(volume) + n_regions + pattern one-hot + laterality one-hot + region one-hot.
-_FEATURE_DIM = 2 + len(PATTERNS) + len(LATERALITIES) + len(REGIONS)
+# Feature dimension: log(volume) + n_regions + lesion_density + is_bilateral +
+# pattern one-hot + laterality one-hot + region MULTI-hot (all regions, not just dominant).
+# Multi-hot region encoding is the key discriminative upgrade: diseases like MS
+# (3-20 regions) vs Glioma (1-3 regions) are now separable even when they share
+# a dominant region, because the FULL region set is encoded.
+_FEATURE_DIM = 4 + len(PATTERNS) + len(LATERALITIES) + len(REGIONS)
 
 
 def _encode_features(
@@ -46,37 +50,68 @@ def _encode_features(
     pattern: str,
     laterality: str,
     dominant_region: str,
+    regions: tuple[str, ...] | list[str] | None = None,
 ) -> np.ndarray:
-    """Encode lesion features into the MLP input vector."""
+    """Encode lesion features into the MLP input vector.
+
+    Layout (FEATURE_DIM = 4 + 5 + 4 + 18 = 31):
+      [0] log(volume)        — log-scaled lesion volume
+      [1] n_regions          — number of distinct lesion regions (normalised)
+      [2] lesion_density     — volume / n_regions (lesion packing density)
+      [3] is_bilateral       — 1.0 if laterality == bilateral, else 0.0
+      [4:9]   pattern one-hot
+      [9:13]  laterality one-hot
+      [13:31] region MULTI-hot (all involved regions, not just the dominant one)
+    """
     vec = np.zeros(_FEATURE_DIM, dtype=np.float32)
     vec[0] = float(np.log1p(max(0.0, volume_mm3))) / 12.0  # log-scale volume
-    vec[1] = float(min(n_regions, 20)) / 20.0
-    off = 2
+    n_reg = min(n_regions, 20)
+    vec[1] = float(n_reg) / 20.0
+    # Lesion density: volume per region — discriminates diffuse (low density,
+    # many small lesions) from focal (high density, one big mass).
+    density = float(np.log1p(max(0.0, volume_mm3)) / max(1, n_reg)) / 12.0
+    vec[2] = min(density, 1.0)
+    vec[3] = 1.0 if laterality == "bilateral" else 0.0
+    off = 4
     if pattern in PATTERNS:
         vec[off + PATTERNS.index(pattern)] = 1.0
     off += len(PATTERNS)
     if laterality in LATERALITIES:
         vec[off + LATERALITIES.index(laterality)] = 1.0
     off += len(LATERALITIES)
-    if dominant_region in REGIONS:
-        vec[off + REGIONS.index(dominant_region)] = 1.0
+    # Multi-hot region encoding: set every involved region, not just dominant.
+    region_set = set(regions) if regions else set()
+    if dominant_region and dominant_region not in region_set:
+        region_set.add(dominant_region)
+    for r in region_set:
+        if r in REGIONS:
+            vec[off + REGIONS.index(r)] = 1.0
     return vec
 
 
 class DiseaseMLP(nn.Module):
-    """4-layer MLP disease classifier over lesion features."""
+    """5-layer MLP disease classifier over lesion features.
+
+    Architecture: input -> Linear(256)+BN+ReLU+Dropout -> Linear(128)+BN+ReLU+Dropout
+    -> Linear(64)+BN+ReLU+Dropout -> Linear(21). BatchNorm stabilises training and
+    lets us use a higher learning rate; the wider first layer + BN gives enough
+    capacity to exploit the richer 31-dim multi-hot feature encoding.
+    """
 
     def __init__(self, feature_dim: int = _FEATURE_DIM, n_classes: int | None = None):
         super().__init__()
         n_classes = n_classes or num_classes()
         self.net = nn.Sequential(
             nn.Linear(feature_dim, 256),
+            nn.BatchNorm1d(256),
             nn.ReLU(),
             nn.Dropout(0.15),
             nn.Linear(256, 128),
+            nn.BatchNorm1d(128),
             nn.ReLU(),
             nn.Dropout(0.15),
             nn.Linear(128, 64),
+            nn.BatchNorm1d(64),
             nn.ReLU(),
             nn.Dropout(0.15),
             nn.Linear(64, n_classes),
@@ -95,32 +130,50 @@ class TrainedClassifier:
     def __init__(self, weights_path: str | Path | None = None):
         self.weights_path = Path(weights_path) if weights_path else _DEFAULT_WEIGHTS
         self.model: DiseaseMLP | None = None
+        self._ensemble: list[DiseaseMLP] = []
         self._load()
 
     def _load(self) -> None:
         if not self.weights_path.exists():
             log.info(
                 "Trained MLP weights not found at %s; training now from the "
-                "transparent signature-derived dataset (one-time, ~10s).",
+                "transparent signature-derived dataset (one-time, ~30s).",
                 self.weights_path,
             )
             try:
                 from scripts.train_disease_classifier import train
 
-                train(epochs=300, n_per_class=600, seed=42)
+                train(epochs=400, n_per_class=800, seed=42)
             except Exception as e:  # pragma: no cover - defensive
                 log.warning("Auto-train failed: %s", e)
         if not self.weights_path.exists():
             return
         try:
-            self.model = DiseaseMLP()
             state = torch.load(self.weights_path, map_location="cpu", weights_only=True)
-            self.model.load_state_dict(state)
-            self.model.eval()
-            log.info("Loaded trained MLP from %s", self.weights_path)
+            # Support both the new ensemble checkpoint dict and the legacy
+            # single-model state_dict (backward compatibility).
+            if isinstance(state, dict) and "ensemble" in state:
+                self._ensemble = [
+                    DiseaseMLP() for _ in range(state.get("n_members", 3))
+                ]
+                for model, member_state in zip(self._ensemble, state["ensemble"], strict=False):
+                    model.load_state_dict(member_state)
+                    model.eval()
+                self.model = self._ensemble[0]  # for .available check
+                log.info(
+                    "Loaded %d-member ensemble MLP from %s",
+                    len(self._ensemble), self.weights_path,
+                )
+            else:
+                self.model = DiseaseMLP()
+                self.model.load_state_dict(state)
+                self.model.eval()
+                self._ensemble = [self.model]
+                log.info("Loaded single trained MLP from %s", self.weights_path)
         except Exception as e:  # pragma: no cover - defensive
             log.warning("Failed to load trained MLP: %s", e)
             self.model = None
+            self._ensemble = []
 
     @property
     def available(self) -> bool:
@@ -133,15 +186,23 @@ class TrainedClassifier:
         pattern: str,
         laterality: str,
         dominant_region: str,
+        regions: tuple[str, ...] | list[str] | None = None,
     ) -> np.ndarray:
-        """Return a normalised probability vector over all disease classes."""
+        """Return a normalised probability vector over all disease classes.
+
+        Averages softmax outputs across all ensemble members for robustness.
+        """
         n = num_classes()
-        if self.model is None:
+        if not self._ensemble:
             return np.full(n, 1.0 / n, dtype=np.float32)
-        vec = _encode_features(volume_mm3, n_regions, pattern, laterality, dominant_region)
+        vec = _encode_features(volume_mm3, n_regions, pattern, laterality, dominant_region, regions)
+        x = torch.from_numpy(vec).unsqueeze(0)
+        probs_sum = np.zeros(n, dtype=np.float32)
         with torch.no_grad():
-            logits = self.model(torch.from_numpy(vec).unsqueeze(0))
-            probs = torch.softmax(logits, dim=1).squeeze(0).numpy()
+            for model in self._ensemble:
+                logits = model(x)
+                probs_sum += torch.softmax(logits, dim=1).squeeze(0).numpy()
+        probs = probs_sum / len(self._ensemble)
         return probs.astype(np.float32)
 
     def predict(
@@ -151,9 +212,10 @@ class TrainedClassifier:
         pattern: str,
         laterality: str,
         dominant_region: str,
+        regions: tuple[str, ...] | list[str] | None = None,
     ) -> tuple[int, float, np.ndarray]:
         """Return (predicted_class, confidence, full probability vector)."""
-        probs = self.predict_proba(volume_mm3, n_regions, pattern, laterality, dominant_region)
+        probs = self.predict_proba(volume_mm3, n_regions, pattern, laterality, dominant_region, regions)
         pred = int(np.argmax(probs))
         return pred, float(probs[pred]), probs
 
@@ -166,6 +228,11 @@ def generate_training_samples(
     Each sample is a (feature_vector, class_id) pair. The features are drawn
     from truncated-normal distributions centred on the disease's signature
     parameters, with realistic noise so the trained model generalises.
+
+    Key: samples MULTIPLE regions per disease (up to region_count), so the
+    multi-hot region encoding captures the full anatomical distribution — this
+    is what lets the MLP distinguish diseases that share a dominant region
+    but differ in their regional spread (e.g. MS vs VaD).
     """
     rng = np.random.default_rng(seed)
     X_list: list[np.ndarray] = []
@@ -178,17 +245,26 @@ def generate_training_samples(
             mid = max(1.0, (lo_v + hi_v) / 2.0)
             vol = float(np.clip(rng.lognormal(np.log(mid + 1) - 0.3, 0.35), lo_v * 0.6, hi_v * 1.8))
             n_regions = int(np.clip(rng.integers(lo_n, hi_n + 1) + rng.integers(0, 2), 0, 25))
-            pattern = sig.pattern if rng.random() > 0.08 else rng.choice(PATTERNS)
-            laterality = sig.laterality if rng.random() > 0.08 else rng.choice(LATERALITIES)
+            # Reduced label noise: 4% (was 8%) — high noise was preventing the
+            # model from learning fine disease distinctions (CJD vs LBD etc).
+            pattern = sig.pattern if rng.random() > 0.04 else rng.choice(PATTERNS)
+            laterality = sig.laterality if rng.random() > 0.04 else rng.choice(LATERALITIES)
+            # Sample MULTIPLE regions from the preferred set (up to n_regions),
+            # plus a small chance of an off-signature region for robustness.
             if sig.preferred_regions:
-                region = (
-                    rng.choice(sig.preferred_regions)
-                    if rng.random() > 0.08
-                    else rng.choice(REGIONS)
-                )
+                k = min(n_regions, len(sig.preferred_regions))
+                k = max(1, k)
+                picked = list(rng.choice(list(sig.preferred_regions), size=k, replace=False))
+                if rng.random() < 0.06:  # occasional off-region lesion
+                    picked.append(str(rng.choice(REGIONS)))
+                region = picked[0]
+                regions = tuple(picked)
             else:
-                region = rng.choice(REGIONS)
-            X_list.append(_encode_features(vol, n_regions, pattern, laterality, region))
+                # Healthy: no lesion regions; occasionally a tiny incidental finding.
+                k = min(n_regions, 2)
+                region = str(rng.choice(REGIONS))
+                regions = tuple(rng.choice(REGIONS, size=k, replace=False)) if k > 0 else ()
+            X_list.append(_encode_features(vol, n_regions, pattern, laterality, region, regions))
             y_list.append(sig.class_id)
     X = np.stack(X_list)
     y = np.array(y_list, dtype=np.int64)

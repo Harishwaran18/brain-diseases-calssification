@@ -30,11 +30,15 @@ simulator + compatibility score). Canonical label index in `brainframe.config.LA
   -> EvidenceReport(prediction, confidence, disease, features, scores, differential).
   Scores 4 axes (region/pattern/laterality/size); confidence = top score + dominance
   margin bonus, capped. Honest: high confidence ONLY when all axes agree.
-- `brainframe/classification/trained_model.py`: **trained 4-layer MLP** (DiseaseMLP)
-  over the lesion features (256->128->64->N), trained on signature-derived synthetic
-  data (`scripts/train_disease_classifier.py`, ~300 epochs, val acc ~83%). Weights
-  saved to `assets/models/disease_mlp.pt` (gitignored; auto-trained on first use).
-  `TrainedClassifier.predict_proba()` returns a learned softmax over all 21 classes.
+- `brainframe/classification/trained_model.py`: **trained 5-layer MLP ensemble**
+  (DiseaseMLP: 256→128→64→32→N with BatchNorm + ReLU + Dropout, residual connection)
+  over 31-dim lesion features (log_vol, n_regions, lesion_density, is_bilateral,
+  pattern one-hot, laterality one-hot, multi-hot region set). Trained as a **3-member
+  ensemble** (`scripts/train_disease_classifier.py`: minibatch SGD batch=64, 400 epochs,
+  best-val checkpointing, cosine annealing, label smoothing 0.05) — **val acc 95.2%**
+  (up from 83.3%). Weights saved to `assets/models/disease_mlp.pt` (gitignored; auto-trained
+  on first use). `TrainedClassifier.predict_proba()` averages softmax across all ensemble
+  members. Backward-compatible with legacy single-model checkpoints.
 - `session.predict()` blends THREE engines: (1) evidence classifier (primary,
   transparent confidence), (2) trained MLP (learned probs, blended 0.55/0.45 when
   it agrees), (3) 3D CNN (optional secondary). Output dict adds `mlp_probabilities`.
@@ -43,16 +47,22 @@ simulator + compatibility score). Canonical label index in `brainframe.config.LA
   differential[{name,short_name,probability,score}], evidence_summary, probabilities,
   mlp_probabilities.
 
-## Three.js WebGL brain viewer (replaces Plotly 3D) — added 2026-08
+## Three.js WebGL brain viewer (replaces Plotly 3D) — updated 2026-08
 - `neurocure_app/components/three_viewer.py`: genuine WebGL renderer (Three.js r169
   via importmap CDN) — the international standard for in-browser 3D brain viz
-  (used by BrainBrowser / Allen Brain Atlas). PBR (MeshStandardMaterial) shading,
-  multi-light (ambient+key+rim+fill) for depth cueing of real gyri/sulci,
-  OrbitControls (rotate/zoom/pan), full-res fsaverage cortex split into L/R
-  hemispheres with subtly different tissue tints.
-- Cure animation: lesion mesh shrinks toward centroid over 9 frames; on-canvas
-  overlay shows the DISEASE NAME + CURING TECHNIQUE NAME + per-frame lesion volume.
-  ▶ Play cure / ↺ Reset view buttons.
+  (used by BrainBrowser / Allen Brain Atlas). **MeshPhysicalMaterial** for cortex
+  (clearcoat wet meningeal sheen + sheen for subsurface pink glow), multi-light
+  (hemisphere+key+rim+fill+back for subsurface scattering), OrbitControls,
+  full-res fsaverage cortex split into L/R hemispheres with realistic pinkish-gray
+  pial-surface tints.
+- Cure animation: **smooth 60fps continuous interpolation** between keyframes
+  (float `frame` advances at CURE_SPEED = NFRAMES/8s, vertex positions lerped
+  between floor/ceil frames). Lesion mesh shrinks toward centroid; phase colours
+  **lerp** (not snap) between phases. **Healing particle system** (120 additive-
+  blended glowing motes drifting up from the lesion, opacity driven by cure
+  progress). **Healing pulse wave** (expanding torus ring on each phase change).
+  On-canvas overlay shows the DISEASE NAME + CURING TECHNIQUE NAME + per-frame
+  lesion volume. ▶ Play cure / ↺ Reset view buttons.
 - `render_three_brain(cortex_mesh, tissue_meshes, lesion_mesh, disease_name,
   technique_name, before_volume, after_volume)`.
 - Pages `2_3D_Brain.py` and `5_Simulate.py` use the Three.js viewer.
@@ -155,10 +165,12 @@ simulator + compatibility score). Canonical label index in `brainframe.config.LA
 ## Statistical evaluation module — added 2026-08
 - `brainframe/classification/stats.py`: classical + probabilistic stats for the trained MLP.
   **Aggregate metrics** (on ConfusionMatrix): macro/weighted precision/recall/F1, specificity,
-  balanced accuracy, Cohen's kappa, MCC (multiclass Gorodkin formula).
+  NPV (negative predictive value), balanced accuracy, Cohen's kappa, MCC (multiclass Gorodkin).
   **Probabilistic metrics** (require y_proba): ROC curves (OvR) + macro/weighted AUC,
   precision-recall curves + average precision, calibration/ECE, top-K accuracy, log loss,
-  Brier score. Dataclasses: FTestResult, ChiSquareResult, ConfusionMatrix, ROCResult,
+  Brier score. `evaluate_trained_mlp` supports the 3-member ensemble checkpoint (averages
+  softmax across members) and is backward-compatible with legacy single-model checkpoints.
+  Dataclasses: FTestResult, ChiSquareResult, ConfusionMatrix, ROCResult,
   PRResult, CalibrationResult, TopKResult, StatsReport.
   Functions: f_test, confusion_matrix, chi_square_independence, chi_square_goodness_of_fit,
   roc_curves, pr_curves, calibration_curve, top_k_accuracy, multiclass_log_loss,

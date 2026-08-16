@@ -253,6 +253,8 @@ try {
   const key = new THREE.DirectionalLight(0xfff2e0, 1.5); key.position.set(120, 200, 180); scene.add(key);
   const rim = new THREE.DirectionalLight(0xb8d4ff, 0.85); rim.position.set(-160, -80, -140); scene.add(rim);
   const fill = new THREE.PointLight(0xffe0b0, 0.45, 800); fill.position.set(0, -150, 120); scene.add(fill);
+  // Subtle backlight to simulate subsurface scattering through thin cortical walls.
+  const back = new THREE.PointLight(0xff8866, 0.30, 500); back.position.set(0, 40, -200); scene.add(back);
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true; controls.dampingFactor = 0.08;
@@ -264,23 +266,40 @@ try {
   let clipOn = false;
   renderer.localClippingEnabled = true;
 
-  function makeMesh(m, color, opacity, roughness, metalness, flat){
+  // ---- Tissue material helper ----
+  // Uses MeshPhysicalMaterial for the cortex: clearcoat gives the wet, glossy
+  // meningeal sheen of a real living brain; sheen adds the soft subsurface
+  // pink glow visible at grazing angles. Lesions use emissive StandardMaterial.
+  function makeMesh(m, color, opacity, roughness, metalness, flat, physical){
     if(!m || !m.positions || m.positions.length===0) return null;
     const geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.Float32BufferAttribute(m.positions, 3));
     if(m.normals && m.normals.length===m.positions.length) geom.setAttribute('normal', new THREE.Float32BufferAttribute(m.normals, 3));
     else geom.computeVertexNormals();
     geom.setIndex(m.indices);
-    const mat = new THREE.MeshStandardMaterial({color, metalness, roughness, flatShading: !!flat, transparent: opacity<1.0, opacity, side: THREE.DoubleSide, envMapIntensity:0.7, clippingPlanes: clipOn?[clipPlane]:[]});
+    let mat;
+    if(physical){
+      // Physical material: clearcoat = wet meningeal sheen; sheen = subsurface pink.
+      mat = new THREE.MeshPhysicalMaterial({
+        color, metalness, roughness, flatShading: !!flat,
+        transparent: opacity<1.0, opacity, side: THREE.DoubleSide,
+        envMapIntensity: 0.85, clippingPlanes: clipOn?[clipPlane]:[],
+        clearcoat: 0.35, clearcoatRoughness: 0.4,
+        sheen: 0.6, sheenColor: new THREE.Color(0xff5577), sheenRoughness: 0.5,
+      });
+    } else {
+      mat = new THREE.MeshStandardMaterial({color, metalness, roughness, flatShading: !!flat, transparent: opacity<1.0, opacity, side: THREE.DoubleSide, envMapIntensity:0.7, clippingPlanes: clipOn?[clipPlane]:[]});
+    }
     const mesh = new THREE.Mesh(geom, mat);
     scene.add(mesh);
     return mesh;
   }
 
-  // Cortex (left/right hemispheres subtly tinted) — the realistic brain backdrop.
+  // Cortex (left/right hemispheres) — realistic pinkish-gray living brain tissue.
+  // Real pial surface color: warm pink-gray (#d49a8e left, #cf9084 right).
   let leftMesh=null, rightMesh=null;
-  if(DATA.cortexLeft)  leftMesh  = makeMesh(DATA.cortexLeft,  0xc98a4b, 1.0, 0.45, 0.06, false);
-  if(DATA.cortexRight) rightMesh = makeMesh(DATA.cortexRight, 0xc0793a, 1.0, 0.45, 0.06, false);
+  if(DATA.cortexLeft)  leftMesh  = makeMesh(DATA.cortexLeft,  0xd49a8e, 1.0, 0.38, 0.02, false, true);
+  if(DATA.cortexRight) rightMesh = makeMesh(DATA.cortexRight, 0xcf9084, 1.0, 0.38, 0.02, false, true);
   // Tissue meshes.
   if(DATA.tissues) for(const t of DATA.tissues) makeMesh(t.mesh, t.color, t.opacity, 0.6, 0.0, t.flat);
 
@@ -342,6 +361,65 @@ try {
     const pmat = new THREE.MeshBasicMaterial({color:0x9a7ad0, transparent:true, opacity:0.0, side: THREE.BackSide, depthWrite:false, wireframe:true});
     RG.protectMesh = new THREE.Mesh(pgeom, pmat);
     scene.add(RG.protectMesh);
+  }
+
+  // ---- Healing particle system (glowing motes that drift up from the lesion) ----
+  // These appear during the cure cascade to visualise the biological healing
+  // process — pharmaceutical / regenerative molecules reaching the lesion.
+  RG.particles=null; RG.particleGeom=null;
+  if(DATA.lesion && DATA.lesion.positions && DATA.lesion.positions.length){
+    let mn=[1e9,1e9,1e9], mx=[-1e9,-1e9,-1e9];
+    const p=DATA.lesion.positions;
+    for(let i=0;i<p.length;i+=3){for(let j=0;j<3;j++){if(p[i+j]<mn[j])mn[j]=p[i+j];if(p[i+j]>mx[j])mx[j]=p[i+j];}}
+    const cx=(mn[0]+mx[0])/2, cy=(mn[1]+mx[1])/2, cz=(mn[2]+mx[2])/2;
+    const NPART=120;
+    const ppos=new Float32Array(NPART*3);
+    const pvel=new Float32Array(NPART*3);
+    const pseed=new Float32Array(NPART);
+    for(let i=0;i<NPART;i++){
+      // Start at the lesion centroid with a small random offset.
+      ppos[i*3]=cx+(Math.random()-0.5)*8;
+      ppos[i*3+1]=cy+(Math.random()-0.5)*8;
+      ppos[i*3+2]=cz+(Math.random()-0.5)*8;
+      // Random upward-outward drift velocity.
+      const ang=Math.random()*Math.PI*2, sp=0.3+Math.random()*0.8;
+      pvel[i*3]=Math.cos(ang)*sp;
+      pvel[i*3+1]=0.4+Math.random()*0.6;
+      pvel[i*3+2]=Math.sin(ang)*sp;
+      pseed[i]=Math.random();
+    }
+    RG.particleGeom=new THREE.BufferGeometry();
+    RG.particleGeom.setAttribute('position', new THREE.BufferAttribute(ppos,3));
+    RG.particleVel=pvel; RG.particleSeed=pseed; RG.particleN=NPART;
+    RG.particleCenter=[cx,cy,cz];
+    // Soft round sprite texture (procedural canvas, no network fetch).
+    const cv=document.createElement('canvas'); cv.width=cv.height=32;
+    const ctx=cv.getContext('2d'); const g=ctx.createRadialGradient(16,16,0,16,16,16);
+    g.addColorStop(0,'rgba(180,255,200,1)'); g.addColorStop(0.3,'rgba(100,240,150,0.8)');
+    g.addColorStop(1,'rgba(60,200,120,0)'); ctx.fillStyle=g; ctx.fillRect(0,0,32,32);
+    const tex=new THREE.CanvasTexture(cv);
+    const pmat2=new THREE.PointsMaterial({
+      size:4.5, map:tex, transparent:true, opacity:0.0, depthWrite:false,
+      blending:THREE.AdditiveBlending, sizeAttenuation:true,
+    });
+    RG.particles=new THREE.Points(RG.particleGeom, pmat2);
+    scene.add(RG.particles);
+  }
+
+  // ---- Healing pulse wave (expanding ring on phase change) ----
+  RG.pulseMesh=null; RG.pulseT=-1;
+  if(DATA.lesion && DATA.lesion.positions && DATA.lesion.positions.length){
+    let mn=[1e9,1e9,1e9], mx=[-1e9,-1e9,-1e9];
+    const p=DATA.lesion.positions;
+    for(let i=0;i<p.length;i+=3){for(let j=0;j<3;j++){if(p[i+j]<mn[j])mn[j]=p[i+j];if(p[i+j]>mx[j])mx[j]=p[i+j];}}
+    const cx=(mn[0]+mx[0])/2, cy=(mn[1]+mx[1])/2, cz=(mn[2]+mx[2])/2;
+    let r=0; for(let i=0;i<p.length;i+=3){const d=Math.hypot(p[i]-cx,p[i+1]-cy,p[i+2]-cz); if(d>r)r=d;}
+    const ringGeom=new THREE.TorusGeometry(r*1.2, 1.2, 8, 48);
+    ringGeom.translate(cx,cy,cz);
+    const ringMat=new THREE.MeshBasicMaterial({color:0x40e0d0, transparent:true, opacity:0.0, depthWrite:false, blending:THREE.AdditiveBlending});
+    RG.pulseMesh=new THREE.Mesh(ringGeom, ringMat);
+    RG.pulseCenter=[cx,cy,cz]; RG.pulseBaseR=r*1.2;
+    scene.add(RG.pulseMesh);
   }
 
   // Frame the camera on the whole scene; store the home view for Reset.
@@ -441,15 +519,50 @@ try {
   // Allow the cure-UI plain script's Reset button to also restore the camera.
   window.__nc3d.resetCamera = resetCamera;
 
-  // ---- Animation loop: bloom composer + gizmo + lesion pulse during cure ----
+  // ---- Animation loop: bloom composer + gizmo + lesion pulse + particles ----
   let t0 = performance.now();
   function animate(){ requestAnimationFrame(animate);
     controls.update();
+    const t = (performance.now()-t0)/1000;
     // Pulse the lesion emissive while the cure is playing for a "live" glow.
     if(RG.lesionMesh){
-      const t = (performance.now()-t0)/1000;
       const pulse = 0.5 + 0.25*Math.sin(t*4.0);
       RG.lesionMesh.material.emissiveIntensity = 0.45 + pulse*0.35;
+    }
+    // Animate healing particles: drift upward-outward, fade based on cure progress.
+    if(RG.particles && RG.particleGeom){
+      const pos=RG.particleGeom.getAttribute('position');
+      const vel=RG.particleVel, seed=RG.particleSeed, N=RG.particleN, cc=RG.particleCenter;
+      const active = RG.particleActive || 0;  // 0..1 driven by cure progress
+      for(let i=0;i<N;i++){
+        const k=i*3;
+        // Brownian-like drift + upward bias.
+        pos.array[k]   += vel[k]*0.016 + Math.sin(t*2+seed[i]*6)*0.15;
+        pos.array[k+1] += vel[k+1]*0.016;
+        pos.array[k+2] += vel[k+2]*0.016 + Math.cos(t*2+seed[i]*6)*0.15;
+        // Recycle particle back to centre when it drifts too far.
+        const dy=pos.array[k+1]-cc[1];
+        if(dy>30 || Math.abs(pos.array[k]-cc[0])>25){
+          pos.array[k]=cc[0]+(Math.random()-0.5)*8;
+          pos.array[k+1]=cc[1]+(Math.random()-0.5)*8;
+          pos.array[k+2]=cc[2]+(Math.random()-0.5)*8;
+        }
+      }
+      pos.needsUpdate=true;
+      RG.particles.material.opacity = active * 0.7;
+    }
+    // Animate the healing pulse wave (expanding ring on phase change).
+    if(RG.pulseMesh && RG.pulseT>=0){
+      const dt = t - RG.pulseT;
+      if(dt < 1.5){
+        const f = dt/1.5;
+        const scale = 1 + f*2.5;
+        RG.pulseMesh.scale.set(scale, scale, scale);
+        RG.pulseMesh.material.opacity = (1-f) * 0.6;
+      } else {
+        RG.pulseMesh.material.opacity = 0;
+        RG.pulseT = -1;
+      }
     }
     if(useComposer && composer) composer.render(); else renderer.render(scene, camera);
     drawGizmo();
@@ -507,13 +620,13 @@ function drawFallback(f){
   fbCtx.fillStyle='#0a0e14'; fbCtx.fillRect(0,0,W,H);
   for(let h=-1;h<=1;h+=2){
     fbCtx.beginPath();
-    fbCtx.fillStyle='#3a2a18';
+    fbCtx.fillStyle='#b07a72';
     fbCtx.ellipse(cx+h*R*0.55, cy, R*0.95, R*1.05, h*0.12, 0, Math.PI*2);
     fbCtx.fill();
-    fbCtx.strokeStyle='#5a3e22'; fbCtx.lineWidth=2;
+    fbCtx.strokeStyle='#c8908a'; fbCtx.lineWidth=2;
     fbCtx.stroke();
     for(let i=0;i<6;i++){
-      fbCtx.beginPath(); fbCtx.strokeStyle='rgba(90,62,34,0.5)'; fbCtx.lineWidth=1.5;
+      fbCtx.beginPath(); fbCtx.strokeStyle='rgba(160,100,92,0.5)'; fbCtx.lineWidth=1.5;
       const a=i*Math.PI/6 + (h>0?0.1:-0.1);
       fbCtx.moveTo(cx+h*R*0.55+Math.cos(a)*R*0.2, cy+Math.sin(a)*R*0.2);
       fbCtx.quadraticCurveTo(cx+h*R*0.55+Math.cos(a)*R*0.6, cy+Math.sin(a)*R*0.6, cx+h*R*0.55+Math.cos(a)*R*0.9, cy+Math.sin(a)*R*0.9);
@@ -566,12 +679,14 @@ if(phases.length && tlbar){
 }
 
 let playing=false, frame=0, lastT=0;
+let t0Ref = performance.now()/1000;
 const playBtn=document.getElementById('play'), resetBtn=document.getElementById('reset');
 const mv=document.getElementById('mv'), pv=document.getElementById('pv');
 const mc=document.getElementById('mc'), ds=document.getElementById('ds');
 
 function frameInfo(f){
-  if(TIMELINE && TIMELINE.frames && TIMELINE.frames[f]) return TIMELINE.frames[f];
+  const fi = Math.floor(f);
+  if(TIMELINE && TIMELINE.frames && TIMELINE.frames[fi]) return TIMELINE.frames[fi];
   return null;
 }
 function curV(f){
@@ -584,16 +699,21 @@ function curV(f){
 function applyFrame(f){
   // 3D mesh updates only when the WebGL module exposed them.
   const RG = window.__nc3d;
-  if(RG && RG.lesionGeom && DATA.lesionFrames && DATA.lesionFrames[f]){
+  if(RG && RG.lesionGeom && DATA.lesionFrames && DATA.lesionFrames[f]!==undefined){
     const pos=RG.lesionGeom.getAttribute('position'); const arr=DATA.lesionFrames[f];
     for(let i=0;i<arr.length;i++) pos.array[i]=arr[i]; pos.needsUpdate=true;
     RG.lesionGeom.computeVertexNormals();
   }
-  const fi = frameInfo(f);
+  const fi = frameInfo(Math.floor(f));
   if(RG && RG.lesionMesh && fi && fi.phase_color){
-    RG.lesionMesh.material.color.set(fi.phase_color);
+    // Smooth color transition: lerp toward the target phase color.
+    if(!RG._targetColor) RG._targetColor = new THREE.Color();
+    RG._targetColor.set(fi.phase_color);
+    if(!RG.lesionMesh.material.color.equals(RG._targetColor)){
+      RG.lesionMesh.material.color.lerp(RG._targetColor, 0.12);
+    }
   }
-  if(RG && RG.regenGeom && DATA.regenFrames && DATA.regenFrames[f]){
+  if(RG && RG.regenGeom && DATA.regenFrames && DATA.regenFrames[f]!==undefined){
     const pos=RG.regenGeom.getAttribute('position'); const arr=DATA.regenFrames[f];
     for(let i=0;i<arr.length;i++) pos.array[i]=arr[i]; pos.needsUpdate=true;
     RG.regenGeom.computeVertexNormals();
@@ -601,6 +721,19 @@ function applyFrame(f){
   if(RG && RG.regenMesh && fi) RG.regenMesh.material.opacity = (fi.regen||0) * 0.75;
   if(RG && RG.edemaMesh && fi) RG.edemaMesh.material.opacity = (fi.edema||0) * 0.32;
   if(RG && RG.protectMesh && fi) RG.protectMesh.material.opacity = (fi.protect||0) * 0.25;
+  // Drive particle activity from cure progress.
+  if(RG) RG.particleActive = fi ? (fi.progress||0) : 0;
+  // Fire pulse wave on phase change.
+  if(RG && RG.pulseMesh && fi){
+    const pi = fi.phase_index;
+    if(pi !== RG._lastPhase){
+      RG._lastPhase = pi;
+      RG.pulseT = (performance.now()-t0Ref)/1000;
+      if(RG.pulseMesh.material && fi.phase_color){
+        RG.pulseMesh.material.color.set(fi.phase_color);
+      }
+    }
+  }
   if(fi){
     pv.textContent = fi.phase_name || '';
     pv.style.color = fi.phase_color || '#f0a040';
@@ -622,12 +755,43 @@ applyFrame(0);
 
 playBtn.onclick=()=>{ if(!HAS_CURE){ playBtn.textContent='No cure data'; return; } playing=!playing; playBtn.textContent=playing?'⏸ Pause':'▶ Play cure'; if(playing){frame=0; lastT=performance.now();} };
 resetBtn.onclick=()=>{ frame=0; playing=false; playBtn.textContent='▶ Play cure'; applyFrame(0); if(window.__nc3d && window.__nc3d.resetCamera) window.__nc3d.resetCamera(); };
+// Smooth continuous cure animation: advance `frame` as a FLOAT and interpolate
+// between adjacent keyframes, so the lesion shrink / regen / edema / colour
+// all flow fluidly at 60fps instead of stepping every 380ms.
+const CURE_SPEED = NFRAMES / 8.0;  // ~8 seconds for the full cure
 function loop(t){ requestAnimationFrame(loop);
   // Show the 2D fallback once it's clear the Three.js module didn't init WebGL
   // (the deferred module has run by the first rAF tick; if ok is still false,
   // WebGL is unavailable, so draw the schematic cure on the fallback canvas).
   if(!fbReady && window.__nc3d && !window.__nc3d.ok){ showFallback(); if(fbReady) applyFrame(frame); }
-  if(playing){ if(t-lastT>380){ lastT=t; frame++; if(frame>=NFRAMES){ frame=NFRAMES-1; playing=false; playBtn.textContent='▶ Replay'; } applyFrame(frame); } } }
+  if(playing){
+    const dt = (t - lastT)/1000;
+    lastT = t;
+    frame += dt * CURE_SPEED;
+    if(frame >= NFRAMES-1){
+      frame = NFRAMES-1; playing=false; playBtn.textContent='▶ Replay';
+    }
+    // Interpolate vertex positions between floor(frame) and ceil(frame).
+    const f0 = Math.floor(frame), f1 = Math.min(f0+1, NFRAMES-1);
+    const frac = frame - f0;
+    const RG = window.__nc3d;
+    if(RG && RG.lesionGeom && DATA.lesionFrames && DATA.lesionFrames[f0] && DATA.lesionFrames[f1]){
+      const pos = RG.lesionGeom.getAttribute('position');
+      const a = DATA.lesionFrames[f0], b = DATA.lesionFrames[f1];
+      for(let i=0;i<a.length;i++) pos.array[i] = a[i] + (b[i]-a[i])*frac;
+      pos.needsUpdate=true;
+      RG.lesionGeom.computeVertexNormals();
+    }
+    if(RG && RG.regenGeom && DATA.regenFrames && DATA.regenFrames[f0] && DATA.regenFrames[f1]){
+      const pos = RG.regenGeom.getAttribute('position');
+      const a = DATA.regenFrames[f0], b = DATA.regenFrames[f1];
+      for(let i=0;i<a.length;i++) pos.array[i] = a[i] + (b[i]-a[i])*frac;
+      pos.needsUpdate=true;
+      RG.regenGeom.computeVertexNormals();
+    }
+    applyFrame(frame);
+  }
+}
 requestAnimationFrame(loop);
 })();
 </script>
