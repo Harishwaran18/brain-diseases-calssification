@@ -212,6 +212,7 @@ class Session:
                     features.pattern,
                     features.laterality,
                     features.dominant_region,
+                    features.cluster_regions,
                 ).tolist()
         except Exception as e:  # pragma: no cover - optional
             log.debug("Trained MLP skipped: %s", e)

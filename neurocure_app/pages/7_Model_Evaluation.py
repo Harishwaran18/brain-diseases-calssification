@@ -79,6 +79,29 @@ cal = report.get("calibration")
 topk = report.get("top_k")
 has_proba = roc is not None
 
+# ---- Model architecture card ----
+with st.expander("🧠 Model architecture & training", expanded=False):
+    mc1, mc2, mc3, mc4 = st.columns(4)
+    with mc1:
+        st.metric("Architecture", "5-layer MLP")
+        st.caption("256→128→64→21 · BatchNorm · Dropout 0.15")
+    with mc2:
+        st.metric("Ensemble", "3 members")
+        st.caption("Averaged softmax · best-val checkpoint")
+    with mc3:
+        st.metric("Features", "31-dim")
+        st.caption("Multi-hot regions + density + bilateral")
+    with mc4:
+        st.metric("Training", "400 epochs")
+        st.caption("AdamW · cosine annealing · label smoothing 0.05")
+    st.caption(
+        "The classifier is a **3-member ensemble** of 5-layer MLPs (Linear+BatchNorm+ReLU+Dropout), "
+        "trained on 16,800 signature-derived samples (800 per disease × 21 diseases) with minibatch "
+        "SGD (batch=64), best-validation checkpointing, and cosine-annealed learning rate. The richer "
+        "31-dim feature encoding (multi-hot region sets + lesion density + bilateral flag) lets the "
+        "ensemble distinguish diseases that share a dominant region but differ in regional spread."
+    )
+
 # ---- Headline metric tiles ----
 tiles: list[dict[str, object]] = [
     {"label": "Accuracy", "value": f"{cm['accuracy']:.1%}", "color": "#3fb950",
@@ -114,7 +137,9 @@ def _confusion_details_table(cm: dict) -> pd.DataFrame:
     for i, name in enumerate(cm["class_names"]):
         rows.append({
             "Disease": name, "Precision": cm["precision"][i], "Recall": cm["recall"][i],
-            "F1": cm["f1"][i], "Specificity": cm["specificity"][i], "Support": cm["support"][i],
+            "F1": cm["f1"][i], "Specificity": cm["specificity"][i],
+            "NPV": cm.get("npv", [0.0] * len(cm["class_names"]))[i],
+            "Support": cm["support"][i],
         })
     return pd.DataFrame(rows)
 
@@ -140,6 +165,20 @@ with tab_overview:
     s_df = pd.DataFrame({"Metric": list(summary.keys()), "Value": list(summary.values())})
     s_df["Value"] = s_df["Value"].map(lambda v: f"{v:.4f}")
     st.dataframe(s_df, use_container_width=True, hide_index=True)
+
+    # Per-class best/worst callout.
+    st.markdown("#### Best & worst performing diseases")
+    f1_pairs = list(zip(cm["class_names"], cm["f1"], strict=False))
+    f1_sorted = sorted(f1_pairs, key=lambda x: x[1], reverse=True)
+    bc1, bc2 = st.columns(2)
+    with bc1:
+        st.markdown("**🟢 Top 5 (highest F1)**")
+        for name, score in f1_sorted[:5]:
+            st.markdown(f"- {name}: `{score:.3f}`")
+    with bc2:
+        st.markdown("**🔴 Bottom 5 (lowest F1)**")
+        for name, score in f1_sorted[-5:]:
+            st.markdown(f"- {name}: `{score:.3f}`")
 
     if has_proba:
         st.markdown("#### Top-K accuracy (differential-diagnosis quality)")
