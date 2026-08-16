@@ -1,0 +1,15 @@
+# Render Blueprint — one-click deploy to render.com
+# After pushing this file, go to render.com → New → Blueprint and select
+# the Harishwaran18/brain-diseases-calssification repo.
+services:
+  - type: web
+    name: neurocure
+    runtime: python
+    plan: free  # upgrade to 'starter' for always-on (no sleep)
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run neurocure_app/app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+    healthCheckPath: /
+    autoDeploy: true

@@ -15,6 +15,11 @@ import streamlit as st
 
 from brainframe.session import Session
 
+# Repo root resolved from this file's location so the app works regardless of
+# the current working directory (important for cloud deployments where the
+# process may start from a different cwd).
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
 SESSION_KEY = "neurocure_session"
 WORK_DIR_KEY = "neurocure_work_dir"
 
@@ -22,7 +27,7 @@ WORK_DIR_KEY = "neurocure_work_dir"
 def get_work_dir() -> Path:
     """Return (and lazily create) the per-user work directory."""
     if WORK_DIR_KEY not in st.session_state:
-        work = Path("data/outputs/neurocure")
+        work = REPO_ROOT / "data" / "outputs" / "neurocure"
         work.mkdir(parents=True, exist_ok=True)
         st.session_state[WORK_DIR_KEY] = work
     return st.session_state[WORK_DIR_KEY]
@@ -37,7 +42,8 @@ def init_session(**kwargs: Any) -> Session:
     """Create a fresh engine Session and store it in session_state."""
     work = get_work_dir()
     kwargs.setdefault("output_dir", work / f"subject_{len(list(work.iterdir())) + 1}")
-    sess = Session.from_config_path("configs/default.yaml", **kwargs)
+    config_path = REPO_ROOT / "configs" / "default.yaml"
+    sess = Session.from_config_path(str(config_path), **kwargs)
     st.session_state[SESSION_KEY] = sess
     return sess
 

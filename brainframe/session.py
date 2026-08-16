@@ -106,7 +106,7 @@ class Session:
             self.label_volume = labels
             log.info("Loaded REAL ICBM152 brain: shape=%s", vol.shape)
             return self
-        demo = Path("assets/demo_brain.nii.gz")
+        demo = Path(__file__).resolve().parent.parent / "assets" / "demo_brain.nii.gz"
         if not demo.exists():
             # Fall back to the brain phantom generator.
             from brainframe.data.brain_phantom import generate_brain_volume
