@@ -14,6 +14,20 @@ The heavy AI work is done by the ``brainframe`` engine
 
 from __future__ import annotations
 
+# ---------------------------------------------------------------------------
+# FIX: Make the project root available to Python.
+# This allows imports such as:
+#     from neurocure_app import state
+# to work correctly when Streamlit runs neurocure_app/app.py.
+# ---------------------------------------------------------------------------
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import streamlit as st
 
 from neurocure_app import state
@@ -136,87 +150,211 @@ def main() -> None:
     diag_col, therapy_col = st.columns(2)
 
     with diag_col:
-        st.markdown('<h3 class="nc-section-header">🔬 Diagnostic Pipeline</h3>',
-                    unsafe_allow_html=True)
+        st.markdown(
+            '<h3 class="nc-section-header">🔬 Diagnostic Pipeline</h3>',
+            unsafe_allow_html=True,
+        )
         st.markdown('<div class="nc-card">', unsafe_allow_html=True)
+
         if sess is None:
-            st.markdown(f"📤 Upload {_badge('empty')}", unsafe_allow_html=True)
+            st.markdown(
+                f"📤 Upload {_badge('empty')}",
+                unsafe_allow_html=True,
+            )
             st.markdown("No scan loaded yet.")
-            st.page_link("pages/1_Upload.py", label="→ Upload a brain scan", icon="📤")
+            st.page_link(
+                "pages/1_Upload.py",
+                label="→ Upload a brain scan",
+                icon="📤",
+            )
         else:
             summary = sess.summary()
-            vol_shape = "×".join(str(d) for d in (summary.get("volume_shape") or []))
-            st.markdown(f"📤 Upload {_badge('done')}", unsafe_allow_html=True)
+            vol_shape = "×".join(
+                str(d) for d in (summary.get("volume_shape") or [])
+            )
+
+            st.markdown(
+                f"📤 Upload {_badge('done')}",
+                unsafe_allow_html=True,
+            )
             st.caption(f"Volume: {vol_shape}")
 
-            has_recon = summary.get("stages") and "reconstruct" in summary["stages"]
+            has_recon = (
+                summary.get("stages")
+                and "reconstruct" in summary["stages"]
+            )
+
             st.markdown(
-                f"🧠 3D Reconstruction {_badge('done' if has_recon else 'pending')}",
+                f"🧠 3D Reconstruction "
+                f"{_badge('done' if has_recon else 'pending')}",
                 unsafe_allow_html=True,
             )
+
             if has_recon:
-                st.page_link("pages/2_3D_Brain.py", label="→ View 3D brain", icon="🧠")
+                st.page_link(
+                    "pages/2_3D_Brain.py",
+                    label="→ View 3D brain",
+                    icon="🧠",
+                )
 
             has_pred = bool(summary.get("prediction"))
+
             st.markdown(
-                f"🔬 Disease Prediction {_badge('done' if has_pred else 'pending')}",
+                f"🔬 Disease Prediction "
+                f"{_badge('done' if has_pred else 'pending')}",
                 unsafe_allow_html=True,
             )
+
             if has_pred:
-                st.metric("Predicted disease",
-                          summary["prediction"].get("disease_name",
-                          f"Class {summary['prediction']['prediction']}"))
-                st.page_link("pages/3_Predict.py", label="→ View prediction", icon="🔬")
+                st.metric(
+                    "Predicted disease",
+                    summary["prediction"].get(
+                        "disease_name",
+                        f"Class {summary['prediction']['prediction']}",
+                    ),
+                )
+
+                st.page_link(
+                    "pages/3_Predict.py",
+                    label="→ View prediction",
+                    icon="🔬",
+                )
+
         st.markdown('</div>', unsafe_allow_html=True)
 
     with therapy_col:
-        st.markdown('<h3 class="nc-section-header">💊 Therapeutic Simulation</h3>',
-                    unsafe_allow_html=True)
+        st.markdown(
+            '<h3 class="nc-section-header">💊 Therapeutic Simulation</h3>',
+            unsafe_allow_html=True,
+        )
         st.markdown('<div class="nc-card">', unsafe_allow_html=True)
-        if sess is None or not sess.recommendation:
-            st.markdown(f"💊 Therapy Recommendation {_badge('empty')}", unsafe_allow_html=True)
-            st.caption("Run disease prediction first.")
-            st.markdown(f"🎬 Cure Simulation {_badge('empty')}", unsafe_allow_html=True)
-            st.markdown(f"📄 Report {_badge('empty')}", unsafe_allow_html=True)
-        else:
-            summary = sess.summary() if sess else {}
-            st.markdown(f"💊 Therapy Recommendation {_badge('done')}", unsafe_allow_html=True)
-            st.metric("Recommended technique", sess.recommendation.technique.name)
-            st.page_link("pages/4_Therapy.py", label="→ View therapy", icon="💊")
 
-            has_eval = bool(summary.get("compatibility_score"))
+        if sess is None or not sess.recommendation:
             st.markdown(
-                f"🎬 Cure Simulation {_badge('done' if has_eval else 'pending')}",
+                f"💊 Therapy Recommendation {_badge('empty')}",
                 unsafe_allow_html=True,
             )
-            if has_eval:
-                st.page_link("pages/5_Simulate.py", label="→ View simulation", icon="🎬")
+            st.caption("Run disease prediction first.")
 
-            st.markdown(f"📄 Report {_badge('done' if has_eval else 'pending')}",
-                        unsafe_allow_html=True)
+            st.markdown(
+                f"🎬 Cure Simulation {_badge('empty')}",
+                unsafe_allow_html=True,
+            )
+
+            st.markdown(
+                f"📄 Report {_badge('empty')}",
+                unsafe_allow_html=True,
+            )
+
+        else:
+            summary = sess.summary() if sess else {}
+
+            st.markdown(
+                f"💊 Therapy Recommendation {_badge('done')}",
+                unsafe_allow_html=True,
+            )
+
+            st.metric(
+                "Recommended technique",
+                sess.recommendation.technique.name,
+            )
+
+            st.page_link(
+                "pages/4_Therapy.py",
+                label="→ View therapy",
+                icon="💊",
+            )
+
+            has_eval = bool(summary.get("compatibility_score"))
+
+            st.markdown(
+                f"🎬 Cure Simulation "
+                f"{_badge('done' if has_eval else 'pending')}",
+                unsafe_allow_html=True,
+            )
+
             if has_eval:
-                st.page_link("pages/6_Report.py", label="→ Download report", icon="📄")
+                st.page_link(
+                    "pages/5_Simulate.py",
+                    label="→ View simulation",
+                    icon="🎬",
+                )
+
+            st.markdown(
+                f"📄 Report {_badge('done' if has_eval else 'pending')}",
+                unsafe_allow_html=True,
+            )
+
+            if has_eval:
+                st.page_link(
+                    "pages/6_Report.py",
+                    label="→ Download report",
+                    icon="📄",
+                )
+
         st.markdown('</div>', unsafe_allow_html=True)
 
     # ---- Quick-start CTA when no session ----
     if sess is None:
         st.divider()
+
         st.info(
             "👋 Welcome to **NeuroCure**. Upload a brain MRI (NIfTI/DICOM) or load "
             "the bundled demo brain to begin the diagnostic + therapeutic workflow."
         )
-        st.page_link("pages/1_Upload.py", label="📤 Start → Upload a brain scan", icon="📤")
+
+        st.page_link(
+            "pages/1_Upload.py",
+            label="📤 Start → Upload a brain scan",
+            icon="📤",
+        )
 
     # ---- Sidebar navigation ----
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 🧭 Navigation")
-    st.sidebar.page_link("pages/1_Upload.py", label="1. Upload / Demo brain", icon="📤")
-    st.sidebar.page_link("pages/2_3D_Brain.py", label="2. 3D Brain", icon="🧠")
-    st.sidebar.page_link("pages/3_Predict.py", label="3. Disease Prediction", icon="🔬")
-    st.sidebar.page_link("pages/4_Therapy.py", label="4. Therapy Recommendation", icon="💊")
-    st.sidebar.page_link("pages/5_Simulate.py", label="5. Live Cure Simulation", icon="🎬")
-    st.sidebar.page_link("pages/6_Report.py", label="6. Download Report", icon="📄")
-    st.sidebar.page_link("pages/7_Model_Evaluation.py", label="7. Statistical Evaluation", icon="📊")
+
+    st.sidebar.page_link(
+        "pages/1_Upload.py",
+        label="1. Upload / Demo brain",
+        icon="📤",
+    )
+
+    st.sidebar.page_link(
+        "pages/2_3D_Brain.py",
+        label="2. 3D Brain",
+        icon="🧠",
+    )
+
+    st.sidebar.page_link(
+        "pages/3_Predict.py",
+        label="3. Disease Prediction",
+        icon="🔬",
+    )
+
+    st.sidebar.page_link(
+        "pages/4_Therapy.py",
+        label="4. Therapy Recommendation",
+        icon="💊",
+    )
+
+    st.sidebar.page_link(
+        "pages/5_Simulate.py",
+        label="5. Live Cure Simulation",
+        icon="🎬",
+    )
+
+    st.sidebar.page_link(
+        "pages/6_Report.py",
+        label="6. Download Report",
+        icon="📄",
+    )
+
+    st.sidebar.page_link(
+        "pages/7_Model_Evaluation.py",
+        label="7. Statistical Evaluation",
+        icon="📊",
+    )
+
     st.sidebar.markdown("---")
     st.sidebar.caption("NeuroCure v2.0 · 36-disease ensemble MLP")
 
