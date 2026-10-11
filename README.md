@@ -16,7 +16,12 @@ The system unifies three components into a single reproducible pipeline:
 
 A supervised **brain-disease classification** baseline (the data-hungry contrast the
 research statement critiques) is retained as the entry-point module and umbrella task
-that feeds the segmentation → reconstruction → evaluation pipeline.
+that feeds the segmentation → reconstruction → evaluation pipeline. It ships a trained
+**36-disease** deep residual MLP ensemble (see
+[Disease classification](#disease-classification--statistical-evaluation) below).
+
+The repo also contains **NeuroCure**, an interactive Streamlit platform that exposes the
+whole pipeline as a 7-page web app with a real human-brain 3D viewer.
 
 ## Architecture
 
@@ -55,6 +60,8 @@ uv pip install -e ".[torch,dev]"
 pip install -e ".[torch,dev]"
 # optional visualization & SAM extras
 pip install -e ".[sam,viz]"
+# to run the NeuroCure Streamlit platform (Streamlit + real-brain assets)
+pip install -e ".[app]"
 ```
 
 Core (no torch) installs with just `pip install -e .` and is enough to run the
@@ -171,6 +178,31 @@ tractable, self-contained counterpart of lesion-as-perturbation / whole-brain mo
 
 Output is a JSON + HTML report with before/after 3D renders and metric tables.
 
+## Disease classification & statistical evaluation
+
+The classifier blends three engines
+([`brainframe.session`](brainframe/session.py) `predict()`):
+
+1. **Evidence classifier** (primary, transparent) —
+   [`brainframe.classification.evidence`](brainframe/classification/evidence.py) scores a
+   lesion report across four axes (region / pattern / laterality / size) and only reports
+   high confidence when all axes agree.
+2. **Trained MLP ensemble** — [`brainframe.classification.trained_model`](brainframe/classification/trained_model.py)
+   is a deep residual MLP with self-attention over a 43-dimensional feature vector,
+   trained as a **3-member ensemble** (mixup, OneCycleLR, label smoothing, stratified
+   split) and averaged via softmax. It covers a **36-disease taxonomy**
+   (Healthy, AD, PD, MS, Glioma, Stroke, …) in
+   [`brainframe.classification.diseases`](brainframe/classification/diseases.py).
+   The checkpoint lives at `assets/models/disease_mlp.pt` (gitignored; auto-trained on
+   first use via [`scripts/train_disease_classifier.py`](scripts/train_disease_classifier.py)).
+3. **3D CNN** — optional secondary engine.
+
+[`brainframe.classification.stats`](brainframe/classification/stats.py) adds classical and
+probabilistic evaluation: macro/weighted precision/recall/F1, specificity, NPV, balanced
+accuracy, Cohen's kappa, MCC, ROC/PR curves with AUC and average precision, calibration /
+ECE, top-K accuracy, log loss, Brier score, plus F-test and chi-square feature analysis.
+These power the **Model Evaluation** page of the app.
+
 ## NeuroCure interactive platform
 
 `neurocure_app/` is a Streamlit multipage web app that wraps the `brainframe` engine
@@ -191,18 +223,26 @@ sulci — with smooth shading. The real-brain assets are bundled under
 python -m streamlit run neurocure_app/app.py --server.port 12000 --server.headless true
 ```
 
-The 6 pages are:
+The 7 pages are:
 
 1. **Upload** — load a NIfTI/DICOM file or the bundled demo brain (no download needed).
 2. **3D Brain** — retraining-free segmentation → tissue meshes (gray/white/CSF/lesion)
-   rendered as an interactive rotatable Plotly WebGL 3D scene.
-3. **Predict** — disease classification with confidence and probabilities.
+   rendered with a genuine **Three.js WebGL** viewer (PBR materials, bloom, clipping
+   plane, orbit controls, PNG snapshot), with an animated cure cascade.
+3. **Predict** — disease classification with confidence, an evidence breakdown, and
+   per-class probabilities.
 4. **Therapy** — lesion-region analysis + curated therapy recommendation
    ([`brainframe.therapy`](brainframe/therapy/)) tailored to the predicted class and
    lesion burden.
 5. **Simulate** — live 3D cure animation: the lesion mesh shrinks over time with
    play/pause + slider, before/after volumes, and a therapy-response verdict.
 6. **Report** — downloadable unified HTML + JSON report.
+7. **Model Evaluation** — a 5-tab statistical dashboard for the trained classifier
+   (confusion matrix, ROC/PR curves, calibration, feature analysis) with JSON export.
+
+The 3D viewer is [`neurocure_app/components/three_viewer.py`](neurocure_app/components/three_viewer.py),
+a real WebGL renderer (Three.js r169 via a CDN importmap inside a Streamlit
+`components.html` iframe) rather than a Plotly fallback.
 
 The app is a thin presentation shell; all AI work runs through the typed, idempotent
 [`Session`](brainframe/session.py) API, so each step is cached across page navigations.
@@ -223,7 +263,9 @@ pytest -ra
 
 Tests use synthetic NIfTI fixtures (no network, no real data, CPU-only) covering every
 stage, the end-to-end pipeline, the therapy library/recommender/animation, the `Session`
-API, and the Streamlit app shell (via `streamlit.testing.v1.AppTest`).
+API, the statistical-evaluation module, and the Streamlit app shell (via
+`streamlit.testing.v1.AppTest`). The suite is **134 tests** and runs in under a minute
+once the classifier checkpoint exists (the first run auto-trains the ensemble).
 
 ## Project layout
 
@@ -241,8 +283,8 @@ brain-diseases-calssification/
 │   ├── pipeline.py      # end-to-end orchestrator
 │   ├── session.py        # typed idempotent Session API for the app
 │   └── cli.py           # `brainframe` CLI
-├── neurocure_app/    # Streamlit web platform (6-page multipage app)
-├── tests/            # pytest suite (72 tests)
+├── neurocure_app/    # Streamlit web platform (7-page multipage app)
+├── tests/            # pytest suite (134 tests)
 └── docs/             # architecture / research alignment / reproducibility
 ```
 
