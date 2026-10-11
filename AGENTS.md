@@ -220,3 +220,18 @@ simulator + compatibility score). Canonical label index in `brainframe.config.LA
 - Live browser check: Model Evaluation page -> 473 samples, 21 classes, 83.3% accuracy,
   28/29 F-test features significant, chi-square confirms feature dependence. 3D Brain
   page -> all 5 control buttons render + Spin/Clip/Snapshot/Cure all work without errors.
+
+## GitHub publishing / remotes — added 2026-10
+- Source repo: `Harishwaran18/brain-diseases-calssification` (default branch `main`).
+  The `origin` remote URL embeds a **stale** credential that no longer works (git prompts
+  for a password) — do NOT rely on `git push origin`.
+- The environment's auto-injected `$GITHUB_TOKEN` authenticates as **`evoreal-hue`**: it has
+  only `pull` on the source repo (cannot push/fork there) and **cannot create repos** or edit
+  repo metadata/profile (403 "Resource not accessible by integration"). It DOES have `admin`
+  on `evoreal-hue/evoreal`, where the full project is mirrored as a backup.
+- To push to the source repo, use an **owner-scoped token** (login `Harishwaran18`, `admin`):
+  `git push "https://<TOKEN>@github.com/Harishwaran18/brain-diseases-calssification.git" <branch>:<branch>`.
+  Never push directly to `main`; push a feature branch and open a PR.
+- NOTE: the workspace clone is shallow by default; pushing a full tree to an empty repo fails
+  with "did not receive expected object". Fix: `git fetch <src> main --unshallow` first, then push.
+- Git identity for commits made here: `openhands` / `openhands@all-hands.dev`.
