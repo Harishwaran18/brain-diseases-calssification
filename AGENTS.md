@@ -222,17 +222,16 @@ simulator + compatibility score). Canonical label index in `brainframe.config.LA
   page -> all 5 control buttons render + Spin/Clip/Snapshot/Cure all work without errors.
 
 ## GitHub publishing / remotes — added 2026-10
-- Source repo (read-only for this env's token): `Harishwaran18/brain-diseases-calssification`.
-  The `origin` remote URL contains a stale embedded credential that no longer works
-  (git prompts for a password) — do NOT rely on `git push origin`.
-- This environment's `$GITHUB_TOKEN` authenticates as **`evoreal-hue`** and has only
-  `pull` access to the source repo (cannot push/fork there), and **cannot create repos**
-  or edit repo metadata/profile (all return 403 "Resource not accessible by integration").
-- It DOES have `admin` on `evoreal-hue/evoreal` and `evoreal-hue/nlp-for-robotics`.
-  The full project (all 45 upstream commits + README refresh) was mirrored to
-  **`evoreal-hue/evoreal`** (was empty). Push with:
-  `git push "https://${GITHUB_TOKEN}@github.com/evoreal-hue/evoreal.git" main:main`.
-- NOTE: the workspace clone is shallow by default; pushing a full tree to an empty repo
-  fails with "did not receive expected object". Fix: `git fetch <src> main --unshallow`
-  first (works with the read-only token), then push.
+- Source repo: `Harishwaran18/brain-diseases-calssification` (default branch `main`).
+  The `origin` remote URL embeds a **stale** credential that no longer works (git prompts
+  for a password) — do NOT rely on `git push origin`.
+- The environment's auto-injected `$GITHUB_TOKEN` authenticates as **`evoreal-hue`**: it has
+  only `pull` on the source repo (cannot push/fork there) and **cannot create repos** or edit
+  repo metadata/profile (403 "Resource not accessible by integration"). It DOES have `admin`
+  on `evoreal-hue/evoreal`, where the full project is mirrored as a backup.
+- To push to the source repo, use an **owner-scoped token** (login `Harishwaran18`, `admin`):
+  `git push "https://<TOKEN>@github.com/Harishwaran18/brain-diseases-calssification.git" <branch>:<branch>`.
+  Never push directly to `main`; push a feature branch and open a PR.
+- NOTE: the workspace clone is shallow by default; pushing a full tree to an empty repo fails
+  with "did not receive expected object". Fix: `git fetch <src> main --unshallow` first, then push.
 - Git identity for commits made here: `openhands` / `openhands@all-hands.dev`.
